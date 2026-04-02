@@ -1,0 +1,27 @@
+{
+  "name": "crowcoder-cli",
+  "version": "1.0.0",
+  "description": "Universal AI coding CLI — works with OpenRouter, GLM, Ollama, or any OpenAI-compatible API",
+  "type": "module",
+  "bin": {
+    "crowcoder": "./bin/crowcoder.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "tsx --watch src/index.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "openai": "^4.73.0",
+    "chalk": "^5.3.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  }
+}
