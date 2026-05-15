@@ -67,6 +67,21 @@ import {
   installEcc, printEccStatus, printEccSkills, printEccAgents, printEccCommandList,
   getEccCommandPrompt, listEccCommands, loadEccState, eccResourcesAvailable,
 } from './ecc.js';
+// Walkthrough — agent-led tour of Crowcoder (/walkthrough, /tour, /guide)
+import { buildWalkthroughPrompt } from './walkthrough.js';
+
+/**
+ * Unified prompt resolver — prefers the bundled ECC prompt for a given
+ * intent and falls back to the built-in builder when ECC isn't installed.
+ * Keeps the user-facing surface to ONE command per intent (e.g. /tdd, not
+ * /tdd vs /ecc-tdd). When ECC supplies the prompt, the user's args are
+ * appended under a "## User Input" section so the model still sees them.
+ */
+function buildUnifiedPrompt(eccName: string, args: string, builtin: () => string): string {
+  const ecc = getEccCommandPrompt(eccName);
+  if (!ecc) return builtin();
+  return args.trim() ? `${ecc}\n\n## User Input\n\n${args}` : ecc;
+}
 
 // ── Setup Wizard ──────────────────────────────────────────
 async function setupWizard(rl: readline.Interface): Promise<CrowcoderConfig> {
@@ -161,7 +176,8 @@ function handleSlashCommand(
       console.log(d('  ') + c('/clear') + d('            — clear conversation'));
       console.log(d('  ') + c('/history') + d('          — message count & token estimate'));
       console.log(d('  ') + c('/export [fmt]') + d('     — export conversation (md/json/txt)'));
-      console.log(d('  ') + c('/exit') + d('             — quit'));
+      console.log(d('  ') + c('/exit') + d('             — quit (alias: /quit)'));
+      console.log(d('  ') + c('/walkthrough') + d('      — agent-led tour of Crowcoder (aliases: /tour, /guide)'));
       console.log(d('  ') + c('!<cmd>') + d('            — run shell command directly'));
       console.log(h('\n  ── Model & Provider ──'));
       console.log(d('  ') + c('/model [name]') + d('     — switch or show model'));
@@ -169,8 +185,9 @@ function handleSlashCommand(
       console.log(d('  ') + c('/provider') + d('         — show provider info'));
       console.log(d('  ') + c('/route') + d('            — auto-route model based on next message'));
       console.log(h('\n  ── Modes ──'));
-      console.log(d('  ') + c('/mode [name]') + d('      — switch mode (dev/review/tdd/research/plan/debug/architect)'));
-      console.log(d('  ') + c('/modes') + d('            — list all modes'));
+      console.log(d('  ') + c('/mode [name]') + d('      — switch mode (dev/review/tdd/research/plan/debug/architect/hermes)'));
+      console.log(d('  ') + c('/modes') + d('            — list all modes (read-only; use /mode <name> to switch)'));
+      console.log(d('  ') + c('/hermes') + d('           — alias for /mode hermes (self-improving learning loop)'));
       console.log(h('\n  ── Session ──'));
       console.log(d('  ') + c('/sessions') + d('         — list saved sessions'));
       console.log(d('  ') + c('/save [name]') + d('      — save current session'));
@@ -263,14 +280,17 @@ function handleSlashCommand(
       console.log(d('  ') + c('/detect') + d('           — detect package manager, test runner, build tool'));
       console.log(d('  ') + c('/hook-profile') + d('     — show hook profile & controls'));
       console.log(d('  ') + c('/pm2 [action]') + d('     — PM2 service management'));
-      console.log(d('  ') + c('/hermes') + d('           — switch to Hermes mode (self-improving learning loop)'));
       console.log(h('\n  ── ECC (everything-claude-code) ──'));
+      console.log(d('  ') + d('  Note: /tdd, /review, /security-review, /plan, /refactor, /build-fix'));
+      console.log(d('         automatically use ECC prompts when ECC is installed. No /ecc-tdd duplicates.'));
       console.log(d('  ') + c('/ecc') + d('              — show ECC integration status'));
       console.log(d('  ') + c('/ecc-install') + d('      — install/refresh bundled ECC skills, agents, commands, rules, hooks'));
-      console.log(d('  ') + c('/ecc-skills') + d('       — list ECC skills'));
-      console.log(d('  ') + c('/ecc-agents') + d('       — list ECC agents'));
-      console.log(d('  ') + c('/ecc-commands') + d('     — list ECC commands (each as /ecc-<name>)'));
-      console.log(d('  ') + c('/ecc-<command>') + d('    — invoke a specific ECC command (e.g. /ecc-tdd, /ecc-code-review)'));
+      console.log(d('  ') + c('/ecc-skills') + d('       — filtered view: /skills entries with category=ecc'));
+      console.log(d('  ') + c('/ecc-agents') + d('       — filtered view: /skills entries that are ECC agents'));
+      console.log(d('  ') + c('/ecc-commands') + d('     — list ECC-only commands (have no built-in equivalent)'));
+      console.log(d('  ') + c('/ecc-feature-development') + d(' — feature implementation workflow (ECC-only)'));
+      console.log(d('  ') + c('/ecc-add-language-rules') + d('  — add language-specific rule files (ECC-only)'));
+      console.log(d('  ') + c('/ecc-database-migration') + d('  — database migration workflow (ECC-only)'));
       console.log();
       return { handled: true };
     }
@@ -369,15 +389,9 @@ function handleSlashCommand(
     }
 
     case '/modes':
-      // If an arg is passed, treat it as a mode switch (same as /mode <name>)
-      if (args && MODES[args as Mode]) {
-        mode.current = args as Mode;
-        const m = MODES[mode.current];
-        console.log(chalk.green(`  Mode: ${m.label} — ${m.description}`));
-        return { handled: true };
-      }
+      // List-only. Use `/mode <name>` to switch — single switcher, no duplicates.
       if (args) {
-        console.log(chalk.yellow(`  Unknown mode: ${args}`));
+        console.log(chalk.dim(`  /modes lists modes only. To switch: /mode ${args}`));
       }
       console.log(chalk.cyan('\n  Modes:'));
       for (const m of listModes()) {
@@ -463,12 +477,16 @@ function handleSlashCommand(
 
     // ── Code Quality ──────────────────────────────────
     case '/review': {
-      const prompt = buildReviewPrompt(process.cwd(), args || undefined);
-      if (!prompt) {
+      const builtin = buildReviewPrompt(process.cwd(), args || undefined);
+      const eccPrompt = getEccCommandPrompt('code-review');
+      if (!builtin && !eccPrompt) {
         console.log(chalk.yellow('  No changes to review. Specify a target: /review HEAD~3'));
         return { handled: true };
       }
       mode.current = 'review';
+      const prompt = eccPrompt
+        ? (args.trim() ? `${eccPrompt}\n\n## User Input\n\n${args}` : eccPrompt)
+        : builtin!;
       return { handled: false, injectPrompt: prompt };
     }
 
@@ -478,11 +496,14 @@ function handleSlashCommand(
         return { handled: true };
       }
       mode.current = 'tdd';
-      return { handled: false, injectPrompt: buildTDDPrompt(args) };
+      return { handled: false, injectPrompt: buildUnifiedPrompt('tdd', args, () => buildTDDPrompt(args)) };
 
     case '/security-review':
       mode.current = 'review';
-      return { handled: false, injectPrompt: buildSecurityReviewPrompt(process.cwd()) };
+      return {
+        handled: false,
+        injectPrompt: buildUnifiedPrompt('security-review', args, () => buildSecurityReviewPrompt(process.cwd())),
+      };
 
     case '/audit': {
       const report = runAudit(process.cwd());
@@ -620,8 +641,10 @@ function handleSlashCommand(
     }
 
     case '/build-fix': {
-      const prompt = buildBuildFixPrompt(process.cwd(), args || undefined);
-      return { handled: false, injectPrompt: prompt };
+      return {
+        handled: false,
+        injectPrompt: buildUnifiedPrompt('build-fix', args, () => buildBuildFixPrompt(process.cwd(), args || undefined)),
+      };
     }
 
     case '/test-coverage': {
@@ -631,8 +654,11 @@ function handleSlashCommand(
 
     case '/refactor':
     case '/refactor-clean': {
-      const prompt = args ? buildRefactorPrompt(process.cwd(), args) : buildCleanupPrompt(process.cwd());
-      return { handled: false, injectPrompt: prompt };
+      return {
+        handled: false,
+        injectPrompt: buildUnifiedPrompt('refactor', args,
+          () => args ? buildRefactorPrompt(process.cwd(), args) : buildCleanupPrompt(process.cwd())),
+      };
     }
 
     case '/e2e': {
@@ -657,7 +683,10 @@ function handleSlashCommand(
         return { handled: true };
       }
       mode.current = 'plan';
-      return { handled: false, injectPrompt: buildPlanPrompt(args, process.cwd()) };
+      return {
+        handled: false,
+        injectPrompt: buildUnifiedPrompt('plan', args, () => buildPlanPrompt(args, process.cwd())),
+      };
     }
 
     case '/update-docs': {
@@ -992,6 +1021,12 @@ function handleSlashCommand(
       console.log(chalk.green(`  Exported to: ${filepath}`));
       return { handled: true };
     }
+
+    // ── Walkthrough / guided tour ─────────────────────
+    case '/walkthrough':
+    case '/tour':
+    case '/guide':
+      return { handled: false, injectPrompt: buildWalkthroughPrompt() };
 
     // ── ECC (everything-claude-code) ──────────────────
     case '/ecc':
