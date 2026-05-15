@@ -32,6 +32,7 @@ import { buildRefactorPrompt, buildCleanupPrompt } from './refactor.js';
 import { buildDocsUpdatePrompt, detectDocFiles } from './docs-sync.js';
 import { listSkills, findSkill, applySkill, printSkillList, evolveInstinctsToSkills } from './skills.js';
 import { onSessionStart, onSessionEnd, printMemoryStatus, searchMemory } from './memory.js';
+import { incrementCounter, decrementCounter, resetCounter, getCounter } from './counter.js';
 import { shouldSuggestCompaction } from './strategic-compaction.js';
 // Language-specific agents & review
 import {
@@ -281,6 +282,7 @@ export function handleSlashCommand(
       console.log(d('  ') + c('/prune') + d('            — delete expired instincts'));
       console.log(d('  ') + c('/skills') + d('           — list learned skills'));
       console.log(d('  ') + c('/memory') + d('           — show memory status'));
+      console.log(d('  ') + c('/count [inc|dec|reset]') + d(' — increment/decrement/reset counter'));
       console.log(d('  ') + c('/detect') + d('           — detect package manager, test runner, build tool'));
       console.log(d('  ') + c('/hook-profile') + d('     — show hook profile & controls'));
       console.log(d('  ') + c('/pm2 [action]') + d('     — PM2 service management'));
@@ -769,6 +771,31 @@ export function handleSlashCommand(
     case '/memory':
       printMemoryStatus();
       return { handled: true };
+
+    // ── Counter ─────────────────────────────────────────
+    case '/count': {
+      const subCmd = args.trim();
+      if (subCmd === 'inc' || subCmd === '+') {
+        incrementCounter();
+        console.log(chalk.green(`  Counter: ${getCounter()}`));
+      } else if (subCmd === 'dec' || subCmd === '-') {
+        decrementCounter();
+        console.log(chalk.green(`  Counter: ${getCounter()}`));
+      } else if (subCmd === 'reset') {
+        resetCounter();
+        console.log(chalk.green(`  Counter reset to 0`));
+      } else if (subCmd === 'help') {
+        console.log(chalk.dim('  Usage: /count [inc|dec|reset|help]'));
+        console.log(chalk.dim('  inc (+)  — increment counter'));
+        console.log(chalk.dim('  dec (-)  — decrement counter'));
+        console.log(chalk.dim('  reset    — reset counter to 0'));
+        console.log(chalk.dim('  help     — show this help'));
+      } else {
+        console.log(chalk.green(`  Counter: ${getCounter()}`));
+        console.log(chalk.dim('  Use /count inc|dec|reset|help'));
+      }
+      return { handled: true };
+    }
 
     // ── Language-Specific Reviews ───────────────────
     case '/ts-review':
