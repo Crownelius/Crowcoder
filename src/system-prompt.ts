@@ -5,6 +5,15 @@ import { getModePromptAddition, type Mode } from './modes.js';
 import { buildRulesPrompt } from './rules.js';
 import { getRelevantInstincts } from './learning.js';
 import { findEccSkillForQuery } from './ecc.js';
+import { ALL_TOOLS } from './tools/index.js';
+
+function buildToolList(): string {
+  const lines = ALL_TOOLS.map((t) => {
+    const oneLine = t.description.split('\n')[0];
+    return `  - ${t.name}: ${oneLine}`;
+  });
+  return lines.join('\n');
+}
 
 export function buildSystemPrompt(
   config: CrowcoderConfig,
@@ -73,8 +82,15 @@ You help with software engineering tasks: writing code, fixing bugs, refactoring
 - Mode: ${mode}
 ${fileList ? `- Files in cwd: ${fileList}` : ''}
 
-# Available Tools
-You have tools for: running shell commands (bash), reading files (read_file), writing files (write_file), editing files (edit_file), searching file contents (grep), finding files by pattern (glob), listing directories (list_dir), and fetching web content (web_fetch).
+# Available Tools (these and ONLY these — do not invent tool names)
+${buildToolList()}
+
+IMPORTANT — tool-call rules:
+- The exact, allowed tool names are the bullet keys above. Calling any other name (e.g. \`web_search_exa\`, \`google_search\`, \`shell_exec\`) is an error and the call will fail.
+- For web discovery: use \`web_search\` (returns title/URL/snippet for a keyword query).
+- For reading a known URL: use \`web_fetch\`.
+- For shell-only operations: use \`bash\`. Do not use bash for tasks any other tool already covers.
+- If a capability you want isn't in the list, work around it with the tools that exist. Don't pretend a tool exists.
 
 # Guidelines
 - Read files before editing them. Understand existing code before suggesting changes.

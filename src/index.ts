@@ -154,7 +154,11 @@ function parseSlashCommand(input: string): { cmd: string; args: string } {
 }
 
 // ── Slash Commands ────────────────────────────────────────
-function handleSlashCommand(
+// Exported so smoke tests can dispatch commands directly without spawning a
+// readline REPL or burning LLM tokens. Returns shape is stable contract:
+//   { handled: true }              — local command, output printed to stdout
+//   { handled: false, injectPrompt } — LLM-driven, prompt ready to send
+export function handleSlashCommand(
   input: string,
   config: CrowcoderConfig,
   messages: Message[],

@@ -176,11 +176,19 @@ async function executeToolCalls(
     const tool = getToolByName(toolName);
 
     if (!tool) {
-      console.log(theme.error(`  ${sym.error} Unknown tool: ${toolName}`));
+      // Free models routinely hallucinate tool names (web_search_exa,
+      // google_search, etc.). Telling the model exactly what IS available lets
+      // it self-correct on the next iteration instead of giving up.
+      const valid = ALL_TOOLS.map((t) => t.name).join(', ');
+      console.log(theme.error(`  ${sym.error} Unknown tool: ${toolName} (valid: ${valid})`));
       results.push({
         role: 'tool',
         tool_call_id: tc.id,
-        content: `Error: unknown tool "${toolName}"`,
+        content:
+          `Error: tool "${toolName}" does not exist. Available tools: ${valid}. ` +
+          `Retry with one of these exact names. Do not invent tool names — if you ` +
+          `need a capability not in this list, work around it using the tools that exist ` +
+          `(e.g. use web_search for discovery, web_fetch for a known URL, bash for shell-only operations).`,
       });
       continue;
     }
