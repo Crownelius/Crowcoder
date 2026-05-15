@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { CrowcoderConfig } from './types.js';
 
-const CONFIG_DIR = join(homedir(), '.crowcoder');
+// CROWCODER_HOME lets tests / sandboxed runs point at a temp config dir
+// instead of clobbering the user's real ~/.crowcoder/config.json. Default
+// is the real home dir so production behavior is unchanged.
+const CONFIG_DIR = process.env.CROWCODER_HOME || join(homedir(), '.crowcoder');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_CONFIG: CrowcoderConfig = {

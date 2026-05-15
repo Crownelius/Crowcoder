@@ -13,11 +13,18 @@
  * Exit code: 0 = all pass, 1 = any failed.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Use a temp config dir so commands like /dry-run that call saveConfig() can't
+// clobber the user's real ~/.crowcoder/config.json. MUST be set BEFORE dist
+// is imported so config.ts picks it up.
+const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'crowcoder-smoke-'));
+process.env.CROWCODER_HOME = TMP_HOME;
 
 async function main() {
   const dist = path.join(__dirname, '..', 'dist', 'index.js');
@@ -238,7 +245,11 @@ async function main() {
 
   console.log('\n────────────────────────────────────────');
   console.log(`  Total: ${tests.length}   Pass: \x1b[32m${results.pass}\x1b[0m   Fail: \x1b[31m${results.fail}\x1b[0m`);
+  console.log(`  Temp config dir: ${TMP_HOME} (cleaned)`);
   console.log('────────────────────────────────────────');
+
+  // Always clean up the temp config dir so we don't leave junk in tmpdir.
+  try { fs.rmSync(TMP_HOME, { recursive: true, force: true }); } catch {}
 
   if (failures.length) {
     console.log('\nFailures:');
