@@ -5,7 +5,7 @@ Universal AI coding assistant for the terminal. Works with OpenRouter, GLM, Olla
 Ships bundled with the full **[everything-claude-code](https://github.com/Crownelius/everything-claude-code)** harness library — skills, agents, slash commands, language rules, and security hooks — automatically installed on first launch.
 
 ```
-npm install -g github:Crownelius/Crowcoder
+npm install -g crowcoder
 crowcoder
 ```
 

@@ -13,12 +13,11 @@ Crowcoder at any OpenAI-compatible API.
 **Single command** (Node 18+ required):
 
 ```bash
-npm install -g github:Crownelius/Crowcoder
+npm install -g crowcoder
 crowcoder
 ```
 
-That clones the repo, installs deps, builds the TypeScript, and puts
-`crowcoder` on your PATH. First run launches the setup wizard.
+First run launches the setup wizard.
 
 Inside the REPL, type `/walkthrough` and an agent will walk you through the
 features. `/help` shows every command. `Ctrl+C` exits.
@@ -32,15 +31,11 @@ features. `/help` shows every command. `Ctrl+C` exits.
 - **A POSIX-like shell** (macOS, Linux, WSL, or Git Bash on Windows). PowerShell
   and CMD work too — Crowcoder spawns Git Bash for shell commands on Windows.
 
-## Install from GitHub (recommended — single command, no token needed)
+## Install from npm
 
 ```bash
-npm install -g github:Crownelius/Crowcoder
+npm install -g crowcoder
 ```
-
-That's it. npm clones the repo, installs runtime + dev deps, runs the
-`prepare` script which compiles TypeScript into `dist/`, and writes a
-`crowcoder` shim into your global npm bin (already on `PATH`).
 
 Verify:
 
@@ -48,17 +43,18 @@ Verify:
 crowcoder --help        # or just `crowcoder` for the REPL
 ```
 
-To uninstall later: `npm uninstall -g crowcoder-cli`.
+To uninstall later: `npm uninstall -g crowcoder`.
 
-## Install from npm registry (when published)
+### Pre-publish alternative: install from GitHub
 
-Once Crowcoder is published to the registry, the command shortens further:
+If you want the latest commit before it lands on the registry:
 
 ```bash
-npm install -g crowcoder
+npm install -g github:Crownelius/Crowcoder
 ```
 
-Same setup wizard, same UX. Watch the repo's releases for the announcement.
+Same package, fetched from the repo's default branch. npm runs the
+`prepare` script to compile TypeScript on install.
 
 ## Install from source (for development)
 
@@ -72,7 +68,7 @@ npm link               # global `crowcoder` points at this checkout
 ```
 
 Now edits in `src/` take effect after `npx tsc` (or `npm run build`). To
-uninstall the global shim: `npm unlink -g crowcoder-cli`.
+uninstall the global shim: `npm unlink -g crowcoder`.
 
 ### Without `npm link`
 
@@ -196,10 +192,8 @@ Refresh anytime with `/ecc-install`. Disable a specific hook by editing
 
 ## Updating
 
-If you installed via `npm install -g github:Crownelius/Crowcoder`:
-
 ```bash
-npm install -g github:Crownelius/Crowcoder      # same command — re-fetches latest
+npm install -g crowcoder@latest          # re-fetches the latest published version
 ```
 
 If you installed from a source clone:
@@ -214,8 +208,8 @@ npx tsc                # rebuild
 ## Uninstall
 
 ```bash
-npm uninstall -g crowcoder-cli     # if installed via npm install -g
-npm unlink -g crowcoder-cli        # if installed via `npm link` from a source clone
+npm uninstall -g crowcoder         # if installed via npm install -g
+npm unlink -g crowcoder            # if installed via `npm link` from a source clone
 rm -rf ~/.crowcoder                # local state (config, sessions, instincts, etc.)
 ```
 

@@ -1,8 +1,29 @@
 {
-  "name": "crowcoder-cli",
+  "name": "crowcoder",
   "version": "1.1.0",
   "description": "Universal AI coding CLI — works with OpenRouter, GLM, Ollama, or any OpenAI-compatible API. Bundled with the everything-claude-code skill, agent, command, and rule library.",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/Crownelius/Crowcoder#readme",
+  "bugs": "https://github.com/Crownelius/Crowcoder/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crownelius/Crowcoder.git"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-assistant",
+    "claude",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "ollama",
+    "hermes",
+    "tdd",
+    "everything-claude-code"
+  ],
   "bin": {
     "crowcoder": "./bin/crowcoder.js",
     "anycode": "./bin/crowcoder.js"
