@@ -1,7 +1,7 @@
 # Installing Crowcoder
 
 Crowcoder is a universal AI coding CLI for the terminal. After install you get
-a `crowcoder` command that drops you into an interactive REPL with 80+ slash
+a `compact-construct` command that drops you into an interactive REPL with 80+ slash
 commands, multi-agent orchestration, a bundled [everything-claude-code][ecc]
 skill library, and Hermes self-improving mode.
 
@@ -13,8 +13,8 @@ Crowcoder at any OpenAI-compatible API.
 **Single command** (Node 18+ required):
 
 ```bash
-npm install -g crowcoder
-crowcoder
+npm install -g compact-construct
+compact-construct
 ```
 
 First run launches the setup wizard.
@@ -34,16 +34,17 @@ features. `/help` shows every command. `Ctrl+C` exits.
 ## Install from npm
 
 ```bash
-npm install -g crowcoder
+npm install -g compact-construct
 ```
 
 Verify:
 
 ```bash
-crowcoder --help        # or just `crowcoder` for the REPL
+compact-construct --help     # show help
+compact-construct            # launch the REPL
 ```
 
-To uninstall later: `npm uninstall -g crowcoder`.
+To uninstall later: `npm uninstall -g compact-construct`.
 
 ### Pre-publish alternative: install from GitHub
 
@@ -64,11 +65,11 @@ If you want to hack on Crowcoder itself, clone and link:
 git clone https://github.com/Crownelius/Crowcoder.git
 cd Crowcoder
 npm install            # also runs prepare/tsc automatically
-npm link               # global `crowcoder` points at this checkout
+npm link               # global `compact-construct` points at this checkout
 ```
 
 Now edits in `src/` take effect after `npx tsc` (or `npm run build`). To
-uninstall the global shim: `npm unlink -g crowcoder`.
+uninstall the global shim: `npm unlink -g compact-construct`.
 
 ### Without `npm link`
 
@@ -81,7 +82,7 @@ alias crowcoder='node /full/path/to/Crowcoder/bin/crowcoder.js'   # or alias it
 
 ## First-run setup
 
-The first time you run `crowcoder`, the setup wizard fires. It asks for:
+The first time you run `compact-construct`, the setup wizard fires. It asks for:
 
 1. **Provider.** OpenRouter is the recommended default — one key, hundreds of
    models, including free tiers. Other options: OpenAI, GLM (ZhipuAI), Ollama,
@@ -126,7 +127,7 @@ proxy.
 After setup, try:
 
 ```
-crowcoder
+compact-construct
 ```
 
 You should see the splash, banner, and a `❯ ` prompt. Then:
@@ -139,7 +140,7 @@ You should see the splash, banner, and a `❯ ` prompt. Then:
 ❯ /exit
 ```
 
-If `crowcoder` isn't found after `npm link`, see [Troubleshooting](#troubleshooting).
+If `compact-construct` isn't found after `npm link`, see [Troubleshooting](#troubleshooting).
 
 ## What gets installed
 
@@ -193,7 +194,7 @@ Refresh anytime with `/ecc-install`. Disable a specific hook by editing
 ## Updating
 
 ```bash
-npm install -g crowcoder@latest          # re-fetches the latest published version
+npm install -g compact-construct@latest          # re-fetches the latest published version
 ```
 
 If you installed from a source clone:
@@ -208,8 +209,8 @@ npx tsc                # rebuild
 ## Uninstall
 
 ```bash
-npm uninstall -g crowcoder         # if installed via npm install -g
-npm unlink -g crowcoder            # if installed via `npm link` from a source clone
+npm uninstall -g compact-construct         # if installed via npm install -g
+npm unlink -g compact-construct            # if installed via `npm link` from a source clone
 rm -rf ~/.crowcoder                # local state (config, sessions, instincts, etc.)
 ```
 
@@ -218,7 +219,7 @@ If you set up hooks or wrote skills, back up `~/.crowcoder/skills/` and
 
 ## Troubleshooting
 
-### `crowcoder: command not found`
+### `compact-construct: command not found`
 
 `npm link` didn't put the bin shim on PATH. Verify:
 

@@ -1,7 +1,7 @@
 {
-  "name": "crowcoder",
+  "name": "compact-construct",
   "version": "1.1.0",
-  "description": "Universal AI coding CLI — works with OpenRouter, GLM, Ollama, or any OpenAI-compatible API. Bundled with the everything-claude-code skill, agent, command, and rule library.",
+  "description": "A dense, feature-rich AI coding agent for the terminal. 80+ slash commands, 8 modes including Hermes self-improving loop, multi-agent orchestration, bundled everything-claude-code skills library, learning system, and observable LLM transport. Works with OpenRouter, OpenAI, Anthropic-compatible, Ollama, LM Studio, DeepSeek, or any OpenAI-compatible API.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/Crownelius/Crowcoder#readme",
@@ -25,8 +25,7 @@
     "everything-claude-code"
   ],
   "bin": {
-    "crowcoder": "./bin/crowcoder.js",
-    "anycode": "./bin/crowcoder.js"
+    "compact-construct": "./bin/crowcoder.js"
   },
   "files": [
     "bin/",

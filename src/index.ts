@@ -47,6 +47,7 @@ import {
   buildUserContext,
 } from './users.js';
 import { shouldSuggestCompaction } from './strategic-compaction.js';
+import { login, logout, getAuthenticatedUser, registerPassword, hasPassword } from './login.js';
 // Language-specific agents & review
 import {
   buildTSReviewPrompt, buildPyReviewPrompt, buildGoReviewPrompt, buildRustReviewPrompt,
@@ -99,7 +100,7 @@ function buildUnifiedPrompt(eccName: string, args: string, builtin: () => string
 
 // ── Setup Wizard ──────────────────────────────────────────
 async function setupWizard(rl: readline.Interface): Promise<CrowcoderConfig> {
-  console.log(chalk.bold.cyan('\n  Crowcoder — First-time Setup\n'));
+  console.log(chalk.bold.cyan('\n  Compact Construct — First-time Setup\n'));
   console.log(chalk.white('  Choose a provider:\n'));
 
   const providerKeys = Object.keys(PROVIDERS);
@@ -1278,7 +1279,7 @@ async function main(): Promise<void> {
     );
   } else {
     // Minimal mode: just a one-liner
-    console.log(theme.brandBold('Crowcoder v1.0') + theme.dim(' — AI Coding Assistant'));
+    console.log(theme.brandBold('Compact Construct v1.1.0') + theme.dim(' — A dense, feature-rich AI coding agent'));
     console.log('');
   }
 

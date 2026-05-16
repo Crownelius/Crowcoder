@@ -132,8 +132,8 @@ export function printBanner(
   const w = theme.bright;
 
   console.log('');
-  console.log(b(`  ${sym.crow}  C R O W C O D E R`));
-  console.log(d('     AI Coding Assistant'));
+  console.log(b(`  ${sym.crow}  C O M P A C T   C O N S T R U C T`));
+  console.log(d('     A dense, feature-rich AI coding agent'));
   console.log('');
   console.log(d('  ' + sym.divider.repeat(40)));
   console.log(s('  Provider  ') + w(provider) + s('  ') + d('│') + s('  Model  ') + w(model));
