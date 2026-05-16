@@ -24,3 +24,7 @@ npm-debug.log*
 # Local backups / install helpers — not part of source
 *.bundle
 push-to-github.bat
+
+# LLM driver / smoke-test outputs — regenerable, may contain local paths
+tests/llm-drive-*.out.txt
+tests/llm-drive-*.log

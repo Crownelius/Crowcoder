@@ -295,18 +295,25 @@ Prefix any line with `!` to run a shell command directly without AI involvement:
 ## Install
 
 ```bash
-cd "C:\Users\rsfit\OneDrive\Desktop\Crowcoder"
-npm install
-npx tsc
-npm install -g .
+npm install -g compact-agent
+compact-agent
 ```
 
-Then open any terminal and type `compact-agent`.
+For the full setup walkthrough (prerequisites, providers, troubleshooting) see [INSTALL.md](INSTALL.md).
 
-## Rebuild after edits
+### From source (development)
 
 ```bash
-cd "C:\Users\rsfit\OneDrive\Desktop\Crowcoder" && npx tsc && npm install -g .
+git clone https://github.com/Crownelius/Crowcoder.git
+cd Crowcoder
+npm install
+npm link
+```
+
+Rebuild after edits:
+
+```bash
+npx tsc
 ```
 
 ## Environment Variables
