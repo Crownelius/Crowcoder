@@ -1,5 +1,5 @@
 {
-  "name": "compact-construct",
+  "name": "compact-agent",
   "version": "1.1.0",
   "description": "A dense, feature-rich AI coding agent for the terminal. 80+ slash commands, 8 modes including Hermes self-improving loop, multi-agent orchestration, bundled everything-claude-code skills library, learning system, and observable LLM transport. Works with OpenRouter, OpenAI, Anthropic-compatible, Ollama, LM Studio, DeepSeek, or any OpenAI-compatible API.",
   "type": "module",
@@ -25,7 +25,7 @@
     "everything-claude-code"
   ],
   "bin": {
-    "compact-construct": "./bin/crowcoder.js"
+    "compact-agent": "./bin/crowcoder.js"
   },
   "files": [
     "bin/",

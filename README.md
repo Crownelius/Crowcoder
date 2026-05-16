@@ -1,12 +1,12 @@
-# Compact Construct
+# Compact Agent
 
 Universal AI coding assistant for the terminal. Works with OpenRouter, GLM, Ollama, OpenAI, DeepSeek, LM Studio, or any OpenAI-compatible API.
 
 Ships bundled with the full **[everything-claude-code](https://github.com/Crownelius/everything-claude-code)** harness library — skills, agents, slash commands, language rules, and security hooks — automatically installed on first launch.
 
 ```
-npm install -g compact-construct
-compact-construct
+npm install -g compact-agent
+compact-agent
 ```
 
 > **New here?** See [INSTALL.md](INSTALL.md) for the full setup walkthrough (prerequisites, providers, troubleshooting). Inside the REPL, type `/walkthrough` for an agent-led tour.
@@ -301,7 +301,7 @@ npx tsc
 npm install -g .
 ```
 
-Then open any terminal and type `compact-construct`.
+Then open any terminal and type `compact-agent`.
 
 ## Rebuild after edits
 

@@ -1,20 +1,20 @@
-# Installing Crowcoder
+# Installing Compact Agent
 
-Crowcoder is a universal AI coding CLI for the terminal. After install you get
-a `compact-construct` command that drops you into an interactive REPL with 80+ slash
-commands, multi-agent orchestration, a bundled [everything-claude-code][ecc]
-skill library, and Hermes self-improving mode.
+Compact Agent is a universal AI coding CLI for the terminal. After install you
+get a `compact-agent` command that drops you into an interactive REPL with
+80+ slash commands, multi-agent orchestration, a bundled
+[everything-claude-code][ecc] skill library, and Hermes self-improving mode.
 
 This guide covers installation, first-run setup, and the basics of pointing
-Crowcoder at any OpenAI-compatible API.
+Compact Agent at any OpenAI-compatible API.
 
 ## TL;DR
 
 **Single command** (Node 18+ required):
 
 ```bash
-npm install -g compact-construct
-compact-construct
+npm install -g compact-agent
+compact-agent
 ```
 
 First run launches the setup wizard.
@@ -29,22 +29,22 @@ features. `/help` shows every command. `Ctrl+C` exits.
   one key works across hundreds of models (including free ones). See the
   [Providers](#providers) section below for alternatives.
 - **A POSIX-like shell** (macOS, Linux, WSL, or Git Bash on Windows). PowerShell
-  and CMD work too — Crowcoder spawns Git Bash for shell commands on Windows.
+  and CMD work too — Compact Agent spawns Git Bash for shell commands on Windows.
 
 ## Install from npm
 
 ```bash
-npm install -g compact-construct
+npm install -g compact-agent
 ```
 
 Verify:
 
 ```bash
-compact-construct --help     # show help
-compact-construct            # launch the REPL
+compact-agent --help     # show help
+compact-agent            # launch the REPL
 ```
 
-To uninstall later: `npm uninstall -g compact-construct`.
+To uninstall later: `npm uninstall -g compact-agent`.
 
 ### Pre-publish alternative: install from GitHub
 
@@ -59,17 +59,17 @@ Same package, fetched from the repo's default branch. npm runs the
 
 ## Install from source (for development)
 
-If you want to hack on Crowcoder itself, clone and link:
+If you want to hack on Compact Agent itself, clone and link:
 
 ```bash
 git clone https://github.com/Crownelius/Crowcoder.git
 cd Crowcoder
 npm install            # also runs prepare/tsc automatically
-npm link               # global `compact-construct` points at this checkout
+npm link               # global `compact-agent` points at this checkout
 ```
 
 Now edits in `src/` take effect after `npx tsc` (or `npm run build`). To
-uninstall the global shim: `npm unlink -g compact-construct`.
+uninstall the global shim: `npm unlink -g compact-agent`.
 
 ### Without `npm link`
 
@@ -82,7 +82,7 @@ alias crowcoder='node /full/path/to/Crowcoder/bin/crowcoder.js'   # or alias it
 
 ## First-run setup
 
-The first time you run `compact-construct`, the setup wizard fires. It asks for:
+The first time you run `compact-agent`, the setup wizard fires. It asks for:
 
 1. **Provider.** OpenRouter is the recommended default — one key, hundreds of
    models, including free tiers. Other options: OpenAI, GLM (ZhipuAI), Ollama,
@@ -98,14 +98,14 @@ The first time you run `compact-construct`, the setup wizard fires. It asks for:
    non-destructive ops), or `yolo` (approve everything — fastest, riskiest).
    Default is `ask`. You can change later with `/perm <mode>`.
 
-Your config is saved to `~/.crowcoder/config.json` and Crowcoder drops into
-the REPL.
+Your config is saved to `~/.crowcoder/config.json` and Compact Agent drops
+into the REPL.
 
 To re-run the wizard later: type `/config` inside the REPL.
 
 ## Providers
 
-Crowcoder talks to anything that speaks the OpenAI Chat Completions API.
+Compact Agent talks to anything that speaks the OpenAI Chat Completions API.
 Suggested setups:
 
 | Provider | Base URL | Notes |
@@ -127,7 +127,7 @@ proxy.
 After setup, try:
 
 ```
-compact-construct
+compact-agent
 ```
 
 You should see the splash, banner, and a `❯ ` prompt. Then:
@@ -140,11 +140,11 @@ You should see the splash, banner, and a `❯ ` prompt. Then:
 ❯ /exit
 ```
 
-If `compact-construct` isn't found after `npm link`, see [Troubleshooting](#troubleshooting).
+If `compact-agent` isn't found after `npm link`, see [Troubleshooting](#troubleshooting).
 
 ## What gets installed
 
-Crowcoder is local-first:
+Compact Agent is local-first:
 
 ```
 ~/.crowcoder/
@@ -170,7 +170,7 @@ see the install state.
 
 ## ECC: zero-configuration skill bundle
 
-The first time you run Crowcoder, you'll see this line during startup:
+The first time you run Compact Agent, you'll see this line during startup:
 
 ```
 ECC ready: 33 skills, 16 agents, 9 commands, 7 rule sets.
@@ -194,7 +194,7 @@ Refresh anytime with `/ecc-install`. Disable a specific hook by editing
 ## Updating
 
 ```bash
-npm install -g compact-construct@latest          # re-fetches the latest published version
+npm install -g compact-agent@latest          # re-fetches the latest published version
 ```
 
 If you installed from a source clone:
@@ -209,8 +209,8 @@ npx tsc                # rebuild
 ## Uninstall
 
 ```bash
-npm uninstall -g compact-construct         # if installed via npm install -g
-npm unlink -g compact-construct            # if installed via `npm link` from a source clone
+npm uninstall -g compact-agent         # if installed via npm install -g
+npm unlink -g compact-agent            # if installed via `npm link` from a source clone
 rm -rf ~/.crowcoder                # local state (config, sessions, instincts, etc.)
 ```
 
@@ -219,7 +219,7 @@ If you set up hooks or wrote skills, back up `~/.crowcoder/skills/` and
 
 ## Troubleshooting
 
-### `compact-construct: command not found`
+### `compact-agent: command not found`
 
 `npm link` didn't put the bin shim on PATH. Verify:
 
