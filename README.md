@@ -1,25 +1,3 @@
-<div align="center"><pre>
-         @@@@@@@@  @@@@@@@@
-       @@@@    @@@@@@    @@@@@
-     @@@@      @@@@@@      @@@@
-    @@@@@@    @@@  @@@@   @@@@@@
-  @@@@   @@@@@@ @@@@ @@@@@@@   @@@
-  @@@     @@@@  @@@@@ @@@@      @@
-  @@@   @@@@@ @@@@ @@@  @@@@    @@
-  @@@  @@@  @@@@    @@@@  @@@@ @@@
-   @@@@@  @@@@        @@@@@ @@@@@
-   @@@@@  @@@@        @@@@@ @@@@@
-  @@@  @@@  @@@@    @@@@  @@@  @@@
-  @@@   @@@@@ @@@@@@@@ @@@@@    @@
-  @@@     @@@@  @@@@  @@@@@     @@
-  @@@@  @@@@@@@  @@@ @@@@@@@   @@@
-    @@@@@@    @@@  @@@    @@@@@@
-     @@@@      @@@@@@      @@@@
-       @@@@@@@@@@@@@@@@@@@@@@
-         @@@@@@@@  @@@@@@@@
-</pre></div>
-
-<div align="center">
 
 # Compact Agent
 
@@ -35,8 +13,6 @@
 Compact Agent is a single-command terminal AI coding CLI. It speaks any OpenAI-compatible API (OpenRouter, OpenAI, Anthropic via compatible endpoints, Ollama, LM Studio, DeepSeek, GLM). It ships with **80+ slash commands**, **8 operation modes** including the self-improving **Hermes** mode, the bundled **everything-claude-code** skill library, multi-agent orchestration, a cross-session learning system, and zero telemetry.
 
 [Features](#-features) • [Modes](#-operation-modes) • [Skills](#-skills-system) • [Tools](#-tool-arsenal) • [Providers](#-supported-providers) • [Installation](#-installation) • [Commands](#-slash-commands) • [Privacy](#-privacy) • [Architecture](#-architecture)
-
-</div>
 
 ---
 
