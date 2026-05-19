@@ -22,7 +22,7 @@ import { buildCommitPrompt, buildPRPrompt, printDiff, printLog, isGitRepo } from
 import { buildReviewPrompt, buildTDDPrompt, buildSecurityReviewPrompt, runAudit, printAuditReport, buildPlanPrompt, buildE2EPrompt, buildBuildFixPrompt, buildEvalPrompt, buildUpdateDocsPrompt } from './evaluation.js';
 import { printRules } from './rules.js';
 import { buildOrchestrationPrompt, runParallel, mergeResults, printOrchestrationStatus, type SubAgent } from './orchestration.js';
-import { printBanner as printThemedBanner, printSplash, theme, sym } from './theme.js';
+import { printBanner as printThemedBanner, theme, sym, formatDuration, installScreenReaderDispatch, uninstallScreenReaderDispatch } from './theme.js';
 import { saveExport, type ExportFormat } from './export.js';
 // New feature modules
 import { buildVerifyPrompt, saveCheckpoint, listCheckpoints, restoreCheckpoint } from './verification.js';
@@ -85,6 +85,13 @@ import {
 import { buildWalkthroughPrompt } from './walkthrough.js';
 // Stitch (Google's AI UI/UX design tool) — /stitch, /stitch-config, /stitch-tools
 import { buildStitchPrompt, buildStitchToolsPrompt, saveStitchConfig, printStitchStatus, stitchConfigured } from './stitch.js';
+// Voice / accessibility — built-in dictation (Whisper) + readout (ElevenLabs)
+import {
+  printVoiceStatus, isVoiceEnabled, getTtsConfig, getSttConfig, getAccessibilityConfig,
+  speakAssistantResponse, speak, dictateOnce, DEFAULT_ASSISTANT_VOICE, DEFAULT_USER_VOICE,
+} from './voice.js';
+import { isFfmpegAvailable, audioCue, startRecording, type RecordController } from './audio.js';
+import { applyScreenReader } from './accessibility.js';
 
 /**
  * Unified prompt resolver — prefers the bundled ECC prompt for a given
@@ -303,6 +310,17 @@ export function handleSlashCommand(
       // database-migration, add-language-rules) auto-inject when you describe
       // matching work — no slash command needed. Status line below confirms
       // it's enabled.
+      console.log(h('\n  ── Voice & accessibility ──'));
+      console.log(d('  ') + c('/voice') + d('            — show voice config & status (off by default)'));
+      console.log(d('  ') + c('/voice on|off') + d('     — master switch for dictation + readout'));
+      console.log(d('  ') + c('/voice config') + d('     — quick setup walkthrough'));
+      console.log(d('  ') + c('/voice key stt <key>') + d(' — OpenAI key for Whisper dictation'));
+      console.log(d('  ') + c('/voice key tts <key>') + d(' — ElevenLabs key for assistant readout'));
+      console.log(d('  ') + c('/voice test') + d('       — play a short test utterance'));
+      console.log(d('  ') + c('/voice echo|skip-code|speed') + d(' — fine-tune behavior'));
+      console.log(d('  ') + c('/dictate [s]') + d('      — one-shot record + transcribe (default 30s)'));
+      console.log(d('  ') + c('/accessibility') + d('    — toggle screen-reader mode, audio cues, destructive-confirm'));
+      console.log(d('  Hotkeys: F1 dictate · F2 pause · F3 replay · F4 skip · F5 speed+ · F6 speed–'));
       console.log(h('\n  ── Stitch (Google AI UI/UX design) ──'));
       console.log(d('  Use ') + c('/mode design') + d(' or ') + c('/design <task>') + d(' for UI work — the agent uses Stitch automatically.'));
       console.log(d('  ') + c('/stitch') + d('              — show config status'));
@@ -388,6 +406,15 @@ export function handleSlashCommand(
         mode.current = args as Mode;
         const m = MODES[mode.current];
         console.log(chalk.green(`  Mode: ${m.label} — ${m.description}`));
+        // Accessibility: speak the mode-switch when configured. Doesn't
+        // block — fire-and-forget. Errors swallowed (voice should never
+        // break the REPL).
+        if (isVoiceEnabled(config) && getAccessibilityConfig(config).announceModeSwitches) {
+          const tts = getTtsConfig(config);
+          if (tts.apiKey) {
+            speak(`Mode switched to ${m.label}`, config, { voiceId: tts.assistantVoiceId }).catch(() => { /* noop */ });
+          }
+        }
       } else if (args) {
         console.log(chalk.yellow(`  Unknown mode: ${args}`));
         console.log(chalk.dim(`  Available: ${Object.keys(MODES).join(', ')}`));
@@ -1210,6 +1237,190 @@ export function handleSlashCommand(
     }
 
 
+    // ── Voice / accessibility ────────────────────────
+    // /voice                    — show current voice config + status
+    // /voice on | off           — master switch
+    // /voice config             — interactive setup (asks for keys)
+    // /voice test               — synth a short test utterance to verify TTS
+    // /voice key stt <KEY>      — set OpenAI key for Whisper STT only
+    // /voice key tts <KEY>      — set ElevenLabs key for TTS only
+    // /voice echo on | off      — toggle TTS-echo of user input
+    // /voice skip-code on|off   — toggle stripping code blocks from TTS
+    // /voice speed <n>          — set 0.5..2.0
+    case '/voice': {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const sub = (parts[0] || '').toLowerCase();
+      if (!sub) {
+        printVoiceStatus(config);
+        return { handled: true };
+      }
+      if (sub === 'on' || sub === 'off') {
+        config.voice = config.voice || {};
+        config.voice.enabled = sub === 'on';
+        saveConfig(config);
+        console.log(chalk.green(`  Voice: ${sub === 'on' ? 'ON' : 'OFF'}`));
+        if (sub === 'on') {
+          if (!getTtsConfig(config).apiKey) {
+            console.log(chalk.yellow('  ⚠ No ElevenLabs key set. Run /voice key tts <KEY> to enable readout.'));
+          }
+          if (!getSttConfig(config).apiKey) {
+            console.log(chalk.yellow('  ⚠ No OpenAI key for Whisper. Run /voice key stt <KEY> to enable dictation.'));
+          }
+          isFfmpegAvailable().then((ok) => {
+            if (!ok) console.log(chalk.yellow('  ⚠ ffmpeg not found on PATH. Install ffmpeg: https://ffmpeg.org/'));
+          });
+        }
+        return { handled: true };
+      }
+      if (sub === 'config') {
+        // Lightweight interactive setup deferred to the prompt — user can
+        // also just use `/voice key stt ...` and `/voice key tts ...`.
+        console.log(chalk.cyan('\n  /voice config — quick setup'));
+        console.log(chalk.dim('    1. Get an OpenAI key for Whisper STT: https://platform.openai.com/api-keys'));
+        console.log(chalk.dim('    2. Get an ElevenLabs key for TTS:    https://elevenlabs.io/app/settings/api-keys'));
+        console.log(chalk.dim('    3. Run:  /voice key stt <openai-key>'));
+        console.log(chalk.dim('             /voice key tts <elevenlabs-key>'));
+        console.log(chalk.dim('             /voice on'));
+        console.log(chalk.dim('    4. Press F1 to dictate, hear assistant readout automatically.'));
+        console.log();
+        return { handled: true };
+      }
+      if (sub === 'key') {
+        const target = (parts[1] || '').toLowerCase();
+        const key = parts.slice(2).join(' ').trim();
+        if ((target !== 'stt' && target !== 'tts') || !key) {
+          console.log(chalk.yellow('  Usage: /voice key stt <openai-key>  |  /voice key tts <elevenlabs-key>'));
+          return { handled: true };
+        }
+        config.voice = config.voice || {};
+        if (target === 'stt') {
+          config.voice.stt = { ...(config.voice.stt || {}), apiKey: key };
+          console.log(chalk.green(`  STT key saved (***${key.slice(-4)}).`));
+        } else {
+          config.voice.tts = { ...(config.voice.tts || {}), apiKey: key };
+          console.log(chalk.green(`  TTS key saved (***${key.slice(-4)}).`));
+        }
+        saveConfig(config);
+        return { handled: true };
+      }
+      if (sub === 'test') {
+        const tts = getTtsConfig(config);
+        if (!tts.apiKey) {
+          console.log(chalk.yellow('  No TTS key. Run /voice key tts <elevenlabs-key> first.'));
+          return { handled: true };
+        }
+        console.log(chalk.dim('  Synthesizing test utterance…'));
+        speak('Voice readout is working. This is the assistant voice.', config, { voiceId: tts.assistantVoiceId })
+          .then((ok) => console.log(ok ? chalk.green('  ✓ Played.') : chalk.yellow('  ✗ Playback failed — check ffmpeg.')));
+        return { handled: true };
+      }
+      if (sub === 'echo') {
+        const v = (parts[1] || '').toLowerCase();
+        if (v !== 'on' && v !== 'off') {
+          console.log(chalk.yellow('  Usage: /voice echo on|off'));
+          return { handled: true };
+        }
+        config.voice = config.voice || {};
+        config.voice.tts = { ...(config.voice.tts || {}), echoUser: v === 'on' };
+        saveConfig(config);
+        console.log(chalk.green(`  User-echo: ${v.toUpperCase()}`));
+        return { handled: true };
+      }
+      if (sub === 'skip-code') {
+        const v = (parts[1] || '').toLowerCase();
+        if (v !== 'on' && v !== 'off') {
+          console.log(chalk.yellow('  Usage: /voice skip-code on|off'));
+          return { handled: true };
+        }
+        config.voice = config.voice || {};
+        config.voice.tts = { ...(config.voice.tts || {}), skipCode: v === 'on' };
+        saveConfig(config);
+        console.log(chalk.green(`  Skip-code: ${v.toUpperCase()}`));
+        return { handled: true };
+      }
+      if (sub === 'speed') {
+        const n = parseFloat(parts[1] || '');
+        if (isNaN(n) || n < 0.25 || n > 4.0) {
+          console.log(chalk.yellow('  Usage: /voice speed <0.25..4.0>'));
+          return { handled: true };
+        }
+        config.voice = config.voice || {};
+        config.voice.tts = { ...(config.voice.tts || {}), speed: n };
+        saveConfig(config);
+        console.log(chalk.green(`  TTS speed: ${n}x`));
+        return { handled: true };
+      }
+      console.log(chalk.yellow(`  Unknown /voice subcommand: ${sub}`));
+      console.log(chalk.dim('  Try: on, off, config, test, key, echo, skip-code, speed'));
+      return { handled: true };
+    }
+
+    // /dictate — one-shot push-to-talk WITHOUT the F1 hotkey, useful when a
+    // user is testing the pipeline or running under a terminal that strips
+    // function keys. Records up to 30s, transcribes, injects as next prompt.
+    case '/dictate': {
+      const maxSec = parseInt(args, 10) || 30;
+      console.log(chalk.dim(`  /dictate — recording up to ${maxSec}s…`));
+      // Return as an async-injected prompt; we resolve the recording
+      // synchronously here for simplicity (REPL is blocking anyway).
+      return { handled: true, injectPrompt: '__DICTATE__' + maxSec };
+    }
+
+    // /accessibility — show or toggle the accessibility sub-block
+    //   /accessibility                  — print status
+    //   /accessibility screen-reader on|off
+    //   /accessibility cues on|off
+    //   /accessibility announce-errors on|off
+    //   /accessibility announce-modes  on|off
+    //   /accessibility confirm-destructive on|off
+    //   /accessibility long-resp <words>
+    case '/accessibility':
+    case '/a11y': {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const sub = (parts[0] || '').toLowerCase();
+      const v = (parts[1] || '').toLowerCase();
+      if (!sub) {
+        printVoiceStatus(config);
+        return { handled: true };
+      }
+      const setBool = (field: 'screenReader' | 'audioCues' | 'announceErrors' | 'announceModeSwitches' | 'askBeforeDestructive', label: string) => {
+        if (v !== 'on' && v !== 'off') {
+          console.log(chalk.yellow(`  Usage: /accessibility ${sub} on|off`));
+          return;
+        }
+        config.voice = config.voice || {};
+        config.voice.accessibility = { ...(config.voice.accessibility || {}), [field]: v === 'on' } as typeof config.voice.accessibility;
+        saveConfig(config);
+        // Screen-reader mode is special: install/uninstall the stdout filter
+        // immediately so the toggle takes effect for the very next log line.
+        if (field === 'screenReader') {
+          if (v === 'on') installScreenReaderDispatch(applyScreenReader);
+          else uninstallScreenReaderDispatch();
+        }
+        console.log(chalk.green(`  ${label}: ${v.toUpperCase()}`));
+      };
+      if (sub === 'screen-reader' || sub === 'screenreader' || sub === 'sr') { setBool('screenReader', 'Screen-reader mode'); return { handled: true }; }
+      if (sub === 'cues' || sub === 'audio-cues') { setBool('audioCues', 'Audio cues'); return { handled: true }; }
+      if (sub === 'announce-errors' || sub === 'errors') { setBool('announceErrors', 'Announce errors'); return { handled: true }; }
+      if (sub === 'announce-modes' || sub === 'modes') { setBool('announceModeSwitches', 'Announce mode switches'); return { handled: true }; }
+      if (sub === 'confirm-destructive' || sub === 'destructive') { setBool('askBeforeDestructive', 'Ask before destructive'); return { handled: true }; }
+      if (sub === 'long-resp' || sub === 'threshold') {
+        const n = parseInt(parts[1] || '', 10);
+        if (!n || n < 50) {
+          console.log(chalk.yellow('  Usage: /accessibility long-resp <words≥50>'));
+          return { handled: true };
+        }
+        config.voice = config.voice || {};
+        config.voice.accessibility = { ...(config.voice.accessibility || {}), longResponseThreshold: n };
+        saveConfig(config);
+        console.log(chalk.green(`  Long-response threshold: ${n} words`));
+        return { handled: true };
+      }
+      console.log(chalk.yellow(`  Unknown /accessibility subcommand: ${sub}`));
+      console.log(chalk.dim('  Try: screen-reader, cues, announce-errors, announce-modes, confirm-destructive, long-resp'));
+      return { handled: true };
+    }
+
     // ── ECC (everything-claude-code) — no slash commands ───
     // ECC is bundled, free, auto-installed on first launch, and used
     // automatically: built-in commands (/tdd /review /security-review /plan
@@ -1270,6 +1481,13 @@ async function main(): Promise<void> {
     config = loadConfig();
   }
 
+  // Install the screen-reader output filter if the user's config has it on.
+  // Done as early as possible so every subsequent console.log (banner, hooks,
+  // ECC install report, etc.) gets the filter applied uniformly.
+  if (config.voice?.accessibility?.screenReader) {
+    installScreenReaderDispatch(applyScreenReader);
+  }
+
   // Create session
   const mode = { current: 'dev' as Mode };
   const session = createSession(process.cwd(), config.model, config.provider, mode.current);
@@ -1285,8 +1503,8 @@ async function main(): Promise<void> {
   // Show startup display based on theme setting
   const themeMode = config.theme || 'full';
   if (themeMode === 'full') {
-    // Full mode: splash + banner
-    printSplash();
+    // Full mode: banner. ASCII splash removed per user request — both `full`
+    // and `compact` themes now render the same banner block.
     printThemedBanner(
       config.provider,
       config.model,
@@ -1313,12 +1531,168 @@ async function main(): Promise<void> {
 
   let autoRoute = false;
 
+  // ── F-key hotkey listener ────────────────────────────────
+  // Voice / accessibility hotkeys. All keys are no-ops when voice is off, so
+  // installing the listener unconditionally is safe and lets the user enable
+  // voice mid-session without restarting.
+  //
+  //   F1 = push-to-talk dictation (toggle: first press starts, second stops)
+  //   F2 = pause / resume current TTS playback
+  //   F3 = replay last TTS chunk
+  //   F4 = skip current TTS chunk
+  //   F5 = speed up TTS (×1.25)
+  //   F6 = slow down TTS (×0.8)
+  //
+  // We listen on the raw keypress stream. readline.emitKeypressEvents wires
+  // every keystroke into 'keypress' events; we filter to F-keys only and
+  // pass everything else through to readline's normal line-buffered reader.
+  let dictateController: RecordController | null = null;
+  let dictateActive = false;
+  let activePlaybackCtl: AbortController | null = null;
+  let lastSpokenChunk: string | null = null;
+
+  // Track aborts so query.ts can register a fresh playback session
+  (globalThis as { __voicePlaybackCtl?: AbortController | null }).__voicePlaybackCtl = null;
+  (globalThis as { __voiceLastChunk?: string | null }).__voiceLastChunk = null;
+
+  // emitKeypressEvents sets up the keypress event source; we don't put stdin
+  // in raw mode (readline does that as needed). Some platforms / terminals
+  // don't deliver F-keys at all — failure here is a silent no-op.
+  try {
+    // emitKeypressEvents lives on the callback-flavor 'node:readline' module
+    // (the promises variant doesn't expose it). Dynamically import it so we
+    // don't add another top-level import.
+    const readlineCb = await import('node:readline');
+    readlineCb.emitKeypressEvents(stdin);
+    stdin.on('keypress', (_str, key) => {
+      if (!key) return;
+      const name = String(key.name || '').toLowerCase();
+      // Only intercept F1-F6; everything else falls through to readline
+      if (!['f1', 'f2', 'f3', 'f4', 'f5', 'f6'].includes(name)) return;
+      if (!isVoiceEnabled(config)) {
+        // Voice off — only show a one-time hint
+        return;
+      }
+      const a = getAccessibilityConfig(config);
+
+      if (name === 'f1') {
+        // Push-to-talk toggle
+        if (dictateActive) {
+          dictateActive = false;
+          const ctl = dictateController;
+          dictateController = null;
+          if (!ctl) return;
+          (async () => {
+            if (a.audioCues) await audioCue('recording-stop');
+            const buf = await ctl.stop();
+            if (!buf) {
+              console.log(chalk.dim('  [F1] no audio captured.'));
+              return;
+            }
+            if (a.audioCues) await audioCue('processing');
+            const { transcribeAudio } = await import('./voice.js');
+            const transcript = await transcribeAudio(buf, config, 'wav');
+            if (!transcript) {
+              console.log(chalk.dim('  [F1] transcription failed.'));
+              if (a.audioCues) await audioCue('error');
+              return;
+            }
+            if (a.audioCues) await audioCue('done');
+            // Hand the transcript to readline's input buffer. Most reliable
+            // way is to print the transcript and let the user press Enter,
+            // or — when autoSubmit is on — synthesize a newline so the
+            // current rl.question() resolves with the text.
+            const stt = getSttConfig(config);
+            // We can't directly fill rl's buffer from outside; instead, we
+            // write the transcript and a newline to stdin, which readline
+            // picks up the same as if the user had typed it.
+            stdin.write(transcript);
+            if (stt.autoSubmit) stdin.write('\n');
+          })();
+        } else {
+          // Start recording
+          (async () => {
+            const ok = await isFfmpegAvailable();
+            if (!ok) {
+              console.log(chalk.yellow('  [F1] ffmpeg not on PATH. Install ffmpeg to dictate.'));
+              return;
+            }
+            const ctl = await startRecording(60);
+            if (!ctl) {
+              console.log(chalk.yellow('  [F1] could not start mic capture.'));
+              return;
+            }
+            dictateController = ctl;
+            dictateActive = true;
+            if (a.audioCues) await audioCue('recording-start');
+            console.log(chalk.dim('  [F1] recording — press F1 again to stop.'));
+          })();
+        }
+        return;
+      }
+
+      if (name === 'f2') {
+        // Pause / resume — implement as cancel current chunk; replay restarts.
+        const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
+        if (g.__voicePlaybackCtl && !g.__voicePlaybackCtl.signal.aborted) {
+          g.__voicePlaybackCtl.abort();
+          console.log(chalk.dim('  [F2] TTS paused.'));
+        }
+        return;
+      }
+
+      if (name === 'f3') {
+        // Replay last chunk
+        const g = globalThis as { __voiceLastChunk?: string | null };
+        const chunk = g.__voiceLastChunk;
+        if (!chunk) {
+          console.log(chalk.dim('  [F3] nothing to replay.'));
+          return;
+        }
+        const tts = getTtsConfig(config);
+        if (!tts.apiKey) return;
+        (async () => {
+          await speak(chunk, config, { voiceId: tts.assistantVoiceId });
+        })();
+        return;
+      }
+
+      if (name === 'f4') {
+        // Skip = same as pause for now (chunked playback boundaries)
+        const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
+        if (g.__voicePlaybackCtl) g.__voicePlaybackCtl.abort();
+        console.log(chalk.dim('  [F4] TTS skipped.'));
+        return;
+      }
+
+      if (name === 'f5' || name === 'f6') {
+        config.voice = config.voice || {};
+        const tts = config.voice.tts = { ...(config.voice.tts || {}) };
+        const cur = tts.speed ?? 1.0;
+        const next = name === 'f5' ? Math.min(2.0, cur * 1.25) : Math.max(0.5, cur * 0.8);
+        tts.speed = Math.round(next * 100) / 100;
+        saveConfig(config);
+        console.log(chalk.dim(`  [${name.toUpperCase()}] TTS speed: ${tts.speed}x`));
+        return;
+      }
+    });
+  } catch {
+    // No keypress support — accessibility users can still use /dictate.
+  }
+
+  // Session-start anchor — used by the [Nm Ns] tag prepended to every prompt
+  // so the user can see at a glance how long the REPL has been open. Combined
+  // with the per-chain timer printed after each model response (see runQuery),
+  // gives both "how long am I here" and "how long was that last response."
+  const sessionStartMs = new Date(session.createdAt).getTime();
+
   // Main REPL loop
   while (true) {
     let input: string;
     try {
+      const sessionTag = theme.dim(`[${formatDuration(Date.now() - sessionStartMs)}] `);
       const modeTag = mode.current !== 'dev' ? theme.dim(`[${mode.current}] `) : '';
-      input = await rl.question(modeTag + theme.prompt(`${sym.prompt} `));
+      input = await rl.question(sessionTag + modeTag + theme.prompt(`${sym.prompt} `));
     } catch {
       break;
     }
@@ -1367,7 +1741,21 @@ async function main(): Promise<void> {
       }
       // Some commands inject a prompt into the conversation (e.g. /commit, /review, /tdd)
       if (result.injectPrompt) {
-        messages.push({ role: 'user', content: result.injectPrompt });
+        // Special-case the /dictate flow: synthesize the prompt from the mic
+        // before pushing it as a user message. We use the sentinel
+        // "__DICTATE__<seconds>" so the slash handler stays purely sync.
+        if (result.injectPrompt.startsWith('__DICTATE__')) {
+          const maxSec = parseInt(result.injectPrompt.slice('__DICTATE__'.length), 10) || 30;
+          const transcript = await dictateOnce(config, maxSec);
+          if (!transcript) {
+            console.log(chalk.dim('  [dictate] no transcript captured.'));
+            continue;
+          }
+          console.log(theme.dim('  [dictate] ') + chalk.white(transcript));
+          messages.push({ role: 'user', content: transcript });
+        } else {
+          messages.push({ role: 'user', content: result.injectPrompt });
+        }
         await runQuery({ config, messages, cwd: process.cwd(), rl, sessionId: session.id, mode: mode.current });
         await autoSave(session, messages);
         continue;

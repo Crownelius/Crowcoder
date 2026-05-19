@@ -25,6 +25,49 @@ export interface CrowcoderConfig {
   dryRun?: boolean;        // when true, show what tools WOULD execute without running them
   theme?: 'full' | 'compact' | 'minimal';   // startup display mode
   showThinking?: boolean;  // when true, display model reasoning/thinking tokens
+  voice?: VoiceConfig;     // accessibility: STT (Whisper) + TTS (ElevenLabs) + screen-reader mode
+}
+
+// ── Voice / accessibility config ─────────────────────────
+// All voice features are off by default. Enable end-to-end via /voice on or
+// /voice config. The three sub-blocks split cleanly along their concerns:
+// stt = dictation (user speaks → text into the prompt buffer), tts = readout
+// (assistant + optional user-echo), accessibility = output-mode + cues + UX.
+export interface VoiceConfig {
+  enabled?: boolean;
+  stt?: VoiceSttConfig;
+  tts?: VoiceTtsConfig;
+  accessibility?: VoiceAccessibilityConfig;
+}
+
+export interface VoiceSttConfig {
+  apiKey?: string;        // OpenAI key for Whisper. Falls back to top-level apiKey if absent.
+  baseURL?: string;       // default https://api.openai.com/v1
+  model?: string;         // default 'whisper-1'
+  dictationKey?: string;  // 'F1' (default) — hotkey to push-to-talk
+  autoSubmit?: boolean;   // if true, hitting stop-dictation submits the message
+}
+
+export interface VoiceTtsConfig {
+  apiKey?: string;            // ElevenLabs key (separate from STT)
+  baseURL?: string;           // default https://api.elevenlabs.io/v1
+  model?: string;             // 'eleven_turbo_v2_5' (default) | 'eleven_flash_v2_5' | 'eleven_multilingual_v2'
+  assistantVoiceId?: string;  // default '21m00Tcm4TlvDq8ikWAM' (Rachel)
+  userVoiceId?: string;       // default 'AZnzlk1XvdvUeBnXmlld'  (Domi) — distinct voice for echoed user input
+  echoUser?: boolean;         // when true, user messages are also TTS'd in userVoiceId
+  skipCode?: boolean;         // when true, code blocks are stripped before TTS (default true)
+  speed?: number;             // 0.25 – 4.0, default 1.0
+  stability?: number;         // ElevenLabs voice setting, 0.0 – 1.0, default 0.5
+  similarityBoost?: number;   // ElevenLabs voice setting, 0.0 – 1.0, default 0.75
+}
+
+export interface VoiceAccessibilityConfig {
+  screenReader?: boolean;          // strip ANSI + emoji; replace symbols with words for NVDA/JAWS/VoiceOver
+  audioCues?: boolean;             // beeps for state transitions (ready, recording, processing, done, error)
+  announceErrors?: boolean;        // TTS the error category + fix line on every API error
+  announceModeSwitches?: boolean;  // TTS when /mode <name> fires
+  askBeforeDestructive?: boolean;  // verbal confirmation before destructive tool calls
+  longResponseThreshold?: number;  // word count; over this, agent asks "summary or full read?" (default 300)
 }
 
 // ── Provider presets ──────────────────────────────────────

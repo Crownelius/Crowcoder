@@ -11,7 +11,13 @@ import { scanToolCall, printSecurityWarning } from './security.js';
 import { trackUsage } from './cost-tracker.js';
 import { shouldCompact, compactMessages, quickCompact, DEFAULT_COMPACTION } from './compaction.js';
 import type { Mode } from './modes.js';
-import { theme, sym, printToolRun, printToolResult, printThinkingOpen, printThinkingText, printThinkingClose, printCost, printApiError } from './theme.js';
+import { theme, sym, printToolRun, printToolResult, printThinkingOpen, printThinkingText, printThinkingClose, printCost, printApiError, formatDuration } from './theme.js';
+import {
+  isVoiceEnabled, getTtsConfig, getAccessibilityConfig,
+  speakAssistantResponse, speak, speakUserEcho,
+} from './voice.js';
+import { isLikelyDestructive, describeDestructive, countWords, summarize } from './accessibility.js';
+import { audioCue } from './audio.js';
 
 export interface QueryContext {
   config: CrowcoderConfig;
@@ -105,6 +111,24 @@ function validateToolArguments(tool: Tool, input: Record<string, unknown>): { va
 export async function runQuery(ctx: QueryContext): Promise<void> {
   const maxTurns = 50;
   let turns = 0;
+  // Track total wall time for this response chain (user message →
+  // assistant ending without a tool call). Printed once when the loop exits.
+  const chainStart = Date.now();
+
+  // ── Voice: echo the user's input in the user-echo voice ────
+  // Run async without awaiting — we don't want to block the API call on
+  // ElevenLabs latency. The echo will play while the model is thinking.
+  if (isVoiceEnabled(ctx.config) && getTtsConfig(ctx.config).echoUser) {
+    const lastUser = [...ctx.messages].reverse().find((m) => m.role === 'user');
+    const text = typeof lastUser?.content === 'string' ? lastUser.content : '';
+    if (text) speakUserEcho(text, ctx.config).catch(() => { /* noop */ });
+  }
+
+  // Track the accumulated assistant text across the whole chain so we can
+  // TTS it (or its summary) once the chain ends. We collect text from every
+  // assistant turn, but the final TTS pass only fires after the no-tool-call
+  // exit so tool descriptions aren't read out.
+  let accumulatedAssistantText = '';
 
   // Auto-compact if context is getting large
   if (shouldCompact(ctx.messages, DEFAULT_COMPACTION)) {
@@ -173,7 +197,8 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
     try {
       for await (const event of streamChat(ctx.config, apiMessages, ALL_TOOLS)) {
         if (event.type === 'thinking' && event.content) {
-          if (ctx.config.showThinking) {
+          // showThinking defaults to true; only off when explicitly disabled.
+          if (ctx.config.showThinking !== false) {
             if (!thinkingActive) {
               printThinkingOpen();
               thinkingActive = true;
@@ -216,6 +241,19 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
         provider: ctx.config.provider,
         model: ctx.config.model,
       });
+      // Voice: announce errors aloud for screen-reader users
+      if (isVoiceEnabled(ctx.config) && getAccessibilityConfig(ctx.config).announceErrors) {
+        const tts = getTtsConfig(ctx.config);
+        if (tts.apiKey) {
+          // Keep it terse — one short sentence — to avoid burning quota on
+          // long stack traces. The error pretty-printer already showed the
+          // categorized version to the screen-reader.
+          speak(`API error: ${msg.slice(0, 120)}`, ctx.config, { voiceId: tts.assistantVoiceId }).catch(() => { /* noop */ });
+        }
+        if (getAccessibilityConfig(ctx.config).audioCues) {
+          audioCue('error').catch(() => { /* noop */ });
+        }
+      }
       ctx.messages.push({ role: 'assistant', content: `[API error: ${msg}]` });
       inputGuard.restore();
       break;
@@ -233,6 +271,11 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
     }
     ctx.messages.push(assistantMsg);
 
+    // Accumulate visible assistant text for chain-end TTS. We don't TTS
+    // mid-chain because the model often emits short bridging sentences
+    // between tool calls — speaking each one is noisy and slow.
+    if (fullText) accumulatedAssistantText += (accumulatedAssistantText ? '\n\n' : '') + fullText;
+
     // If no tool calls, we're done
     if (!toolCalls || toolCalls.length === 0) break;
 
@@ -241,8 +284,43 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
     ctx.messages.push(...toolResults);
   }
 
+  // ── Voice: read the assistant's final response ────────────
+  // Off the hot path — fire-and-forget so the next prompt appears
+  // immediately. The playback runs in background; F2 pauses, F4 skips.
+  if (isVoiceEnabled(ctx.config) && accumulatedAssistantText.trim()) {
+    const tts = getTtsConfig(ctx.config);
+    if (tts.apiKey) {
+      const a = getAccessibilityConfig(ctx.config);
+      let toRead = accumulatedAssistantText;
+      // If the response is long, abbreviate via cheap heuristic summary so
+      // blind users aren't forced to listen to 800 words. They can press
+      // F3 (replay) on chunks or ask "give me the full version" verbally.
+      const words = countWords(toRead);
+      if (words >= a.longResponseThreshold) {
+        toRead = summarize(toRead, a.longResponseThreshold);
+      }
+      // Register an abort controller globally so F2/F4 hotkeys can cancel
+      const g = globalThis as { __voicePlaybackCtl?: AbortController | null; __voiceLastChunk?: string | null };
+      const ctl = new AbortController();
+      g.__voicePlaybackCtl = ctl;
+      g.__voiceLastChunk = toRead;
+      speakAssistantResponse(toRead, ctx.config, ctl.signal).catch(() => { /* noop */ });
+    }
+  }
+
   if (turns >= maxTurns) {
     console.log(theme.warning(`\n  ${sym.warn} reached max turns limit`));
+  }
+
+  // Chain-elapsed summary. One line per response chain (user msg → assistant
+  // ending without a tool call), printed regardless of how many tool-call
+  // iterations the chain took. Lets the user see how long that whole
+  // exchange took, separate from per-turn cost timings.
+  const chainMs = Date.now() - chainStart;
+  // Only show if there was meaningful work — multi-second chains. Sub-second
+  // chains (slash command rejects, instant returns) don't need a chain line.
+  if (chainMs > 1500) {
+    console.log(theme.dim(`  chain ${formatDuration(chainMs)} · ${turns} ${turns === 1 ? 'turn' : 'turns'}`));
   }
 }
 
@@ -328,6 +406,20 @@ async function executeToolCalls(
         content: `Blocked by hook: ${preHook.message || 'denied'}`,
       });
       continue;
+    }
+
+    // ── Accessibility: TTS-announce destructive actions ───
+    // Plays before the permission prompt so a blind user hears WHAT they're
+    // approving in addition to the visual prompt. Only fires for tools
+    // flagged destructive AND when voice + askBeforeDestructive are on.
+    if (isVoiceEnabled(ctx.config) && getAccessibilityConfig(ctx.config).askBeforeDestructive) {
+      if (isLikelyDestructive(toolName, input)) {
+        const tts = getTtsConfig(ctx.config);
+        if (tts.apiKey) {
+          const blurb = describeDestructive(toolName, input);
+          await speak(blurb, ctx.config, { voiceId: tts.assistantVoiceId }).catch(() => false);
+        }
+      }
     }
 
     // ── Permission check ──────────────────────────────────

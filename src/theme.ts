@@ -146,35 +146,67 @@ export function printBanner(
   console.log('');
 }
 
-// ── Splash Screen (for full mode — Compact Agent emblem) ──
-// Half-scale 2x2->1 downsample of the original emblem. 18 lines × ~35 cols
-// fits any terminal ≥45 cols wide and ≥24 rows tall.
-const COMPACT_AGENT_SPLASH: readonly string[] = [
-  '         @@@@@@@@  @@@@@@@@',
-  '       @@@@    @@@@@@    @@@@@',
-  '     @@@@      @@@@@@      @@@@',
-  '    @@@@@@    @@@  @@@@   @@@@@@',
-  '  @@@@   @@@@@@ @@@@ @@@@@@@   @@@',
-  '  @@@     @@@@  @@@@@ @@@@      @@',
-  '  @@@   @@@@@ @@@@ @@@  @@@@    @@',
-  '  @@@  @@@  @@@@    @@@@  @@@@ @@@',
-  '   @@@@@  @@@@        @@@@@ @@@@@',
-  '   @@@@@  @@@@        @@@@@ @@@@@',
-  '  @@@  @@@  @@@@    @@@@  @@@  @@@',
-  '  @@@   @@@@@ @@@@@@@@ @@@@@    @@',
-  '  @@@     @@@@  @@@@  @@@@@     @@',
-  '  @@@@  @@@@@@@  @@@ @@@@@@@   @@@',
-  '    @@@@@@    @@@  @@@    @@@@@@',
-  '     @@@@      @@@@@@      @@@@',
-  '       @@@@@@@@@@@@@@@@@@@@@@',
-  '         @@@@@@@@  @@@@@@@@',
-];
+// ── Duration formatter ─────────────────────────────────
+// Human-readable elapsed time for session + chain timers.
+// Examples: 5s · 1m 23s · 2h 5m · 1d 4h
+export function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
 
-export function printSplash(): void {
-  const c = chalk.hex(palette.cyan);
-  console.log('');
-  for (const line of COMPACT_AGENT_SPLASH) console.log(c(line.replace(/\s+$/, '')));
-  console.log('');
+// printSplash kept as a no-op for API compatibility — ASCII art was removed
+// per user request. Existing callers don't need to be updated, but ideally
+// would be (see src/index.ts for the canonical call site).
+export function printSplash(): void { /* removed */ }
+
+// ── Screen-reader output dispatch ───────────────────────
+// When accessibility.screenReader is enabled, every console.log / stderr
+// line passes through applyScreenReader first. We install this as a
+// runtime stdout/stderr patch rather than rewriting every call site —
+// otherwise we'd have to touch 200+ console.log lines across the codebase.
+//
+// The patch is idempotent: calling installScreenReaderDispatch() twice
+// won't double-wrap. Calling uninstallScreenReaderDispatch() restores
+// the original write functions.
+type WriteFn = typeof process.stdout.write;
+interface StreamPatchState {
+  original: WriteFn;
+  transform: (s: string) => string;
+}
+const _streamState = new WeakMap<NodeJS.WriteStream, StreamPatchState>();
+
+export function installScreenReaderDispatch(transform: (s: string) => string): void {
+  for (const stream of [process.stdout, process.stderr] as NodeJS.WriteStream[]) {
+    if (_streamState.has(stream)) continue;
+    const original = stream.write.bind(stream) as WriteFn;
+    _streamState.set(stream, { original, transform });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (stream as any).write = function patchedWrite(this: NodeJS.WriteStream, chunk: any, encodingOrCb?: any, cb?: any): boolean {
+      try {
+        if (typeof chunk === 'string') chunk = transform(chunk);
+        else if (Buffer.isBuffer(chunk)) chunk = transform(chunk.toString('utf-8'));
+      } catch { /* fall through to original */ }
+      // eslint-disable-next-line prefer-rest-params
+      return original(chunk, encodingOrCb, cb);
+    };
+  }
+}
+
+export function uninstallScreenReaderDispatch(): void {
+  for (const stream of [process.stdout, process.stderr] as NodeJS.WriteStream[]) {
+    const state = _streamState.get(stream);
+    if (!state) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (stream as any).write = state.original;
+    _streamState.delete(stream);
+  }
 }
 
 // ── Section Header ──────────────────────────────────────

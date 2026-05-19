@@ -17,6 +17,53 @@ const DEFAULT_CONFIG: CrowcoderConfig = {
   maxTokens: 8192,
   temperature: 0.3,
   permissionMode: 'ask',
+  // Thinking / reasoning shown by default — gives users live "the model isn't
+  // dead" feedback during long turns. Toggle off with /thinking.
+  showThinking: true,
+  // Voice / accessibility is OFF by default. ffmpeg is optional. Users opt in
+  // via `/voice on` (and set the two API keys via `/voice config`). The
+  // sub-blocks define what becomes active once enabled; this just primes them
+  // with reasonable defaults so first use Just Works.
+  voice: {
+    enabled: false,
+    stt: {
+      // apiKey unset — falls back to top-level apiKey for OpenAI-compatible
+      // providers. Whisper specifically requires a real OpenAI key; users
+      // configure a separate one via /voice config when their main provider
+      // isn't OpenAI.
+      baseURL: 'https://api.openai.com/v1',
+      model: 'whisper-1',
+      dictationKey: 'F1',
+      autoSubmit: false,
+    },
+    tts: {
+      // apiKey unset — no fallback (ElevenLabs is a distinct provider). User
+      // must run /voice config to provide it.
+      baseURL: 'https://api.elevenlabs.io/v1',
+      model: 'eleven_turbo_v2_5',
+      // Rachel + Domi — both available on every ElevenLabs free tier; using
+      // two distinct presets gives instant blind-accessibility benefit
+      // (assistant ≠ user voice).
+      assistantVoiceId: '21m00Tcm4TlvDq8ikWAM',
+      userVoiceId: 'AZnzlk1XvdvUeBnXmlld',
+      echoUser: true,
+      skipCode: true,
+      speed: 1.0,
+      stability: 0.5,
+      similarityBoost: 0.75,
+    },
+    accessibility: {
+      // screenReader OFF by default — it's lossy for sighted users (no ANSI
+      // means no syntax highlight). Blind users turn it on via /accessibility
+      // screenReader on.
+      screenReader: false,
+      audioCues: true,
+      announceErrors: true,
+      announceModeSwitches: true,
+      askBeforeDestructive: true,
+      longResponseThreshold: 300,
+    },
+  },
 };
 
 export function getConfigDir(): string {
@@ -64,7 +111,7 @@ function validateConfig(config: CrowcoderConfig): void {
   }
 
   // Warn on unexpected fields
-  const expectedFields = new Set(['apiKey', 'baseURL', 'model', 'provider', 'maxTokens', 'temperature', 'permissionMode', 'dryRun', 'theme', 'showThinking']);
+  const expectedFields = new Set(['apiKey', 'baseURL', 'model', 'provider', 'maxTokens', 'temperature', 'permissionMode', 'dryRun', 'theme', 'showThinking', 'voice']);
   for (const key in config) {
     if (!expectedFields.has(key)) {
       console.warn(`Warning: Unexpected config field: ${key}`);
