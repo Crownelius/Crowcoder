@@ -413,14 +413,14 @@ export function printVoiceStatus(cfg: CrowcoderConfig): void {
   console.log(chalk.dim(`      ask destructive: ${a.askBeforeDestructive ? 'yes' : 'no'}`));
   console.log(chalk.dim(`      long-resp words: ${a.longResponseThreshold}`));
   console.log('');
-  console.log(chalk.dim('    Hotkeys (when enabled):'));
-  console.log(chalk.dim('      Playback (right-side block, tactile-locatable):'));
-  console.log(chalk.dim('        INS  dictate (toggle)   HOME  pause      PGUP  replay last chunk'));
-  console.log(chalk.dim('        DEL  skip current       END   speed +    PGDN  speed –'));
-  console.log(chalk.dim('      Status announcements (F-row):'));
+  console.log(chalk.dim('    Hotkeys (when enabled) — all bare F-keys, screen-reader-safe:'));
+  console.log(chalk.dim('      Status announcements (instant readouts):'));
   console.log(chalk.dim('        F1   what is happening + elapsed'));
   console.log(chalk.dim('        F2   where am I — model / provider / mode / permissions'));
   console.log(chalk.dim('        F3   re-speak full last response'));
   console.log(chalk.dim('        F4   re-speak summary of last response'));
+  console.log(chalk.dim('      Dictation + playback:'));
+  console.log(chalk.dim('        F5   dictate (toggle)   F6   pause       F7   replay last chunk'));
+  console.log(chalk.dim('        F8   skip current       F9   speed +     F10  speed –'));
   console.log('');
 }

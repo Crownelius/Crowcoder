@@ -33,7 +33,7 @@ const DEFAULT_CONFIG: CrowcoderConfig = {
       // isn't OpenAI.
       baseURL: 'https://api.openai.com/v1',
       model: 'whisper-1',
-      dictationKey: 'INS',
+      dictationKey: 'F5',
       autoSubmit: false,
     },
     tts: {

@@ -320,8 +320,8 @@ export function handleSlashCommand(
       console.log(d('  ') + c('/voice echo|skip-code|speed') + d(' — fine-tune behavior'));
       console.log(d('  ') + c('/dictate [s]') + d('      — one-shot record + transcribe (default 30s)'));
       console.log(d('  ') + c('/accessibility') + d('    — toggle screen-reader mode, audio cues, destructive-confirm'));
-      console.log(d('  Playback hotkeys (right block): INS dictate · HOME pause · PGUP replay · DEL skip · END speed+ · PGDN speed–'));
-      console.log(d('  Status hotkeys (F-row): F1 what now · F2 where am I · F3 read full · F4 read summary'));
+      console.log(d('  Status hotkeys: F1 what now · F2 where am I · F3 read full · F4 read summary'));
+      console.log(d('  Playback hotkeys: F5 dictate · F6 pause · F7 replay · F8 skip · F9 speed+ · F10 speed–'));
       console.log(h('\n  ── Stitch (Google AI UI/UX design) ──'));
       console.log(d('  Use ') + c('/mode design') + d(' or ') + c('/design <task>') + d(' for UI work — the agent uses Stitch automatically.'));
       console.log(d('  ') + c('/stitch') + d('              — show config status'));
@@ -1533,28 +1533,33 @@ async function main(): Promise<void> {
   let autoRoute = false;
 
   // ── F-key hotkey listener ────────────────────────────────
-  // Voice / accessibility hotkeys.
+  // Voice / accessibility hotkeys — all on the F-row.
   //
-  // The six right-side block keys handle PLAYBACK + DICTATION. They're
-  // mapped here (and not to F-keys) because the right-side block is
-  // tactile-locatable without sight — INS/HOME/PGUP form a tight triangle
-  // above the arrow keys with raised nibs on many keyboards, and DEL/END/
-  // PGDN sit directly below them. F-keys are repurposed for STATUS read-
-  // outs because they're row-aligned (countable by touch).
+  // The right-side block (INS/HOME/PGUP/DEL/END/PGDN) was the previous
+  // home for these keys, but INS is the default NVDA + JAWS modifier and
+  // binding it intercepts screen-reader commands. Bare F-keys are the
+  // most screen-reader-safe option: NVDA, JAWS, and VoiceOver all reserve
+  // INS+F-key or VO+F-key combos, never bare F-keys.
   //
-  //   Playback / dictation block (right side):
-  //     INS    push-to-talk dictation (toggle: first press starts, second stops)
-  //     HOME   pause current TTS playback
-  //     PGUP   replay last spoken chunk
-  //     DEL    skip the current chunk
-  //     END    speed up TTS  (× 1.25, capped at 2.0)
-  //     PGDN   slow down TTS (× 0.8,  floored at 0.5)
+  // The listener is global and fires regardless of REPL state — during
+  // rl.question() prompt waits, slash-command execution, streaming, and
+  // tool calls. suppressInputDuringStream() in query.ts only adds an
+  // additional 'data' listener that swallows echo; it doesn't unbind the
+  // 'keypress' event source. So these hotkeys work in every context.
   //
-  //   Status announcements (F-row, for "what's happening?" while waiting):
-  //     F1     current activity + elapsed   ("calling claude-sonnet-4, 8s")
-  //     F2     where am I — model/provider/mode/permissions
-  //     F3     re-speak full last response (bypasses summary)
-  //     F4     re-speak summary of last response
+  //   Status (instant, no waiting):
+  //     F1   current activity + elapsed   ("calling claude-sonnet-4, 8s")
+  //     F2   where am I — model/provider/mode/permissions
+  //     F3   re-speak full last response (bypasses summary)
+  //     F4   re-speak summary of last response
+  //
+  //   Dictation + playback:
+  //     F5   push-to-talk dictation (toggle: first press starts, second stops)
+  //     F6   pause TTS playback
+  //     F7   replay last spoken chunk
+  //     F8   skip the current chunk
+  //     F9   speed up TTS  (× 1.25, capped at 2.0)
+  //     F10  slow down TTS (× 0.8,  floored at 0.5)
   //
   // All keys are no-ops when voice is off, so installing the listener
   // unconditionally is safe and lets the user enable voice mid-session
@@ -1569,18 +1574,19 @@ async function main(): Promise<void> {
 
   // emitKeypressEvents lives on the callback-flavor 'node:readline' module
   // (the promises variant doesn't expose it). Some platforms / terminals
-  // don't deliver the right escape sequences for INS/HOME/etc — failure
-  // here is a silent no-op; users can fall back to /dictate.
+  // don't deliver every F-key — failure here is a silent no-op; users can
+  // fall back to /dictate and /voice slash commands.
   try {
     const readlineCb = await import('node:readline');
     const { describeStatus, describeLocation } = await import('./status.js');
     readlineCb.emitKeypressEvents(stdin);
 
     // Set of keys we intercept. Anything not in this set falls through to
-    // readline so normal typing isn't affected.
+    // readline so normal typing isn't affected. All bare F-keys; no
+    // modifiers needed, no screen-reader conflicts.
     const INTERCEPT = new Set([
-      'insert', 'home', 'pageup', 'delete', 'end', 'pagedown',  // playback
-      'f1', 'f2', 'f3', 'f4',                                    // status
+      'f1', 'f2', 'f3', 'f4',                  // status announcements
+      'f5', 'f6', 'f7', 'f8', 'f9', 'f10',     // dictation + playback
     ]);
 
     stdin.on('keypress', (_str, key) => {
@@ -1591,8 +1597,8 @@ async function main(): Promise<void> {
       const a = getAccessibilityConfig(config);
       const tts = getTtsConfig(config);
 
-      // ── INS: push-to-talk dictation toggle ──────────────
-      if (name === 'insert') {
+      // ── F5: push-to-talk dictation toggle ──────────────
+      if (name === 'f5') {
         if (dictateActive) {
           dictateActive = false;
           const ctl = dictateController;
@@ -1602,7 +1608,7 @@ async function main(): Promise<void> {
             if (a.audioCues) await audioCue('recording-stop');
             const buf = await ctl.stop();
             if (!buf) {
-              console.log(chalk.dim('  [INS] no audio captured.'));
+              console.log(chalk.dim('  [F5] no audio captured.'));
               return;
             }
             if (a.audioCues) await audioCue('processing');
@@ -1612,7 +1618,7 @@ async function main(): Promise<void> {
             const transcript = await transcribeAudio(buf, config, 'wav');
             setStatus({ state: 'idle' });
             if (!transcript) {
-              console.log(chalk.dim('  [INS] transcription failed.'));
+              console.log(chalk.dim('  [F5] transcription failed.'));
               if (a.audioCues) await audioCue('error');
               return;
             }
@@ -1624,12 +1630,12 @@ async function main(): Promise<void> {
         } else {
           (async () => {
             if (!(await isFfmpegAvailable())) {
-              console.log(chalk.yellow('  [INS] ffmpeg not on PATH. Install ffmpeg to dictate.'));
+              console.log(chalk.yellow('  [F5] ffmpeg not on PATH. Install ffmpeg to dictate.'));
               return;
             }
             const ctl = await startRecording(60);
             if (!ctl) {
-              console.log(chalk.yellow('  [INS] could not start mic capture.'));
+              console.log(chalk.yellow('  [F5] could not start mic capture.'));
               return;
             }
             dictateController = ctl;
@@ -1637,28 +1643,28 @@ async function main(): Promise<void> {
             const { setStatus } = await import('./status.js');
             setStatus({ state: 'recording' });
             if (a.audioCues) await audioCue('recording-start');
-            console.log(chalk.dim('  [INS] recording — press INS again to stop.'));
+            console.log(chalk.dim('  [F5] recording — press F5 again to stop.'));
           })();
         }
         return;
       }
 
-      // ── HOME: pause TTS ─────────────────────────────────
-      if (name === 'home') {
+      // ── F6: pause TTS ──────────────────────────────────
+      if (name === 'f6') {
         const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
         if (g.__voicePlaybackCtl && !g.__voicePlaybackCtl.signal.aborted) {
           g.__voicePlaybackCtl.abort();
-          console.log(chalk.dim('  [HOME] TTS paused.'));
+          console.log(chalk.dim('  [F6] TTS paused.'));
         }
         return;
       }
 
-      // ── PGUP: replay last chunk ─────────────────────────
-      if (name === 'pageup') {
+      // ── F7: replay last chunk ──────────────────────────
+      if (name === 'f7') {
         const g = globalThis as { __voiceLastChunk?: string | null };
         const chunk = g.__voiceLastChunk;
         if (!chunk) {
-          console.log(chalk.dim('  [PGUP] nothing to replay.'));
+          console.log(chalk.dim('  [F7] nothing to replay.'));
           return;
         }
         if (!tts.apiKey) return;
@@ -1666,23 +1672,23 @@ async function main(): Promise<void> {
         return;
       }
 
-      // ── DEL: skip current chunk ─────────────────────────
-      if (name === 'delete') {
+      // ── F8: skip current chunk ─────────────────────────
+      if (name === 'f8') {
         const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
         if (g.__voicePlaybackCtl) g.__voicePlaybackCtl.abort();
-        console.log(chalk.dim('  [DEL] TTS skipped.'));
+        console.log(chalk.dim('  [F8] TTS skipped.'));
         return;
       }
 
-      // ── END / PGDN: TTS speed ±  ───────────────────────
-      if (name === 'end' || name === 'pagedown') {
+      // ── F9 / F10: TTS speed ±  ─────────────────────────
+      if (name === 'f9' || name === 'f10') {
         config.voice = config.voice || {};
         const ttsCfg = config.voice.tts = { ...(config.voice.tts || {}) };
         const cur = ttsCfg.speed ?? 1.0;
-        const next = name === 'end' ? Math.min(2.0, cur * 1.25) : Math.max(0.5, cur * 0.8);
+        const next = name === 'f9' ? Math.min(2.0, cur * 1.25) : Math.max(0.5, cur * 0.8);
         ttsCfg.speed = Math.round(next * 100) / 100;
         saveConfig(config);
-        console.log(chalk.dim(`  [${name === 'end' ? 'END' : 'PGDN'}] TTS speed: ${ttsCfg.speed}x`));
+        console.log(chalk.dim(`  [${name.toUpperCase()}] TTS speed: ${ttsCfg.speed}x`));
         return;
       }
 
