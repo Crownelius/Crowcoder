@@ -5,29 +5,141 @@
  *   - Semantic color tokens (not raw hex everywhere)
  *   - Unicode symbols for status indicators
  *   - Clean typography with proper contrast
- *   - CMYK base palette
+ *   - 8 swappable palettes sourced from popular community themes
+ *
+ * The active palette is a module-level mutable record. setPalette() rebuilds
+ * every chalk-bound token in the exported `theme` object in place, so any
+ * code holding a reference to `theme.brand`, `theme.dim`, etc. picks up the
+ * new colors on the next call — no re-import or restart required.
+ *
+ * Palettes intentionally share the same 13 named slots (cyan / magenta /
+ * yellow + 5 neutrals + dimmed variants). Theme authors map their colors
+ * into those slots; UI code reads only the semantic tokens. This trades a
+ * small loss of fidelity (a Dracula "purple" gets stored in the `cyanLight`
+ * slot because that's where the accent goes) for a single uniform API.
  */
 import chalk from 'chalk';
 
-// ── CMYK Base Palette ───────────────────────────────────
-const palette = {
-  // Primary CMYK
-  cyan:        '#00BCD4',
-  cyanLight:   '#4DD0E1',
-  cyanDim:     '#00838F',
-  magenta:     '#E91E63',
-  magentaDim:  '#AD1457',
-  yellow:      '#FFEB3B',
-  yellowDim:   '#F9A825',
-  key:         '#212121',
+// ── Palette catalog ─────────────────────────────────────
+// All palettes use the same 13 slots so UI code can treat them uniformly.
+// Slot meanings:
+//   cyan / cyanLight / cyanDim   — primary accent + variants
+//   magenta / magentaDim          — destructive / error accent
+//   yellow / yellowDim            — warning / command accent
+//   key                            — background-ish neutral for badge text
+//   white / light / mid / gray / darkGray — text hierarchy, light → dark
+export interface ColorPalette {
+  cyan: string; cyanLight: string; cyanDim: string;
+  magenta: string; magentaDim: string;
+  yellow: string; yellowDim: string;
+  key: string;
+  white: string; light: string; mid: string; gray: string; darkGray: string;
+}
 
-  // Neutrals (high contrast for dark terminals)
-  white:       '#ECEFF1',
-  light:       '#CFD8DC',
-  mid:         '#B0BEC5',
-  gray:        '#90A4AE',
-  darkGray:    '#607D8B',
+export type PaletteId =
+  | 'compact-cmyk'
+  | 'dracula'
+  | 'nord'
+  | 'solarized-dark'
+  | 'gruvbox'
+  | 'tokyo-night'
+  | 'catppuccin'
+  | 'high-contrast';
+
+export interface PaletteMeta {
+  id: PaletteId;
+  name: string;
+  source: string;
+  description: string;
+}
+
+export const PALETTES: Record<PaletteId, ColorPalette> = {
+  // Default. The original Compact Agent CMYK theme.
+  'compact-cmyk': {
+    cyan: '#00BCD4', cyanLight: '#4DD0E1', cyanDim: '#00838F',
+    magenta: '#E91E63', magentaDim: '#AD1457',
+    yellow: '#FFEB3B', yellowDim: '#F9A825',
+    key: '#212121',
+    white: '#ECEFF1', light: '#CFD8DC', mid: '#B0BEC5', gray: '#90A4AE', darkGray: '#607D8B',
+  },
+  // draculatheme.com — most-installed VS Code theme on earth
+  'dracula': {
+    cyan: '#8be9fd', cyanLight: '#bd93f9', cyanDim: '#6272a4',
+    magenta: '#ff79c6', magentaDim: '#bd93f9',
+    yellow: '#f1fa8c', yellowDim: '#ffb86c',
+    key: '#282a36',
+    white: '#f8f8f2', light: '#f8f8f2', mid: '#bbbbbb', gray: '#6272a4', darkGray: '#44475a',
+  },
+  // nordtheme.com — cool arctic palette
+  'nord': {
+    cyan: '#88c0d0', cyanLight: '#8fbcbb', cyanDim: '#5e81ac',
+    magenta: '#b48ead', magentaDim: '#d08770',
+    yellow: '#ebcb8b', yellowDim: '#d08770',
+    key: '#2e3440',
+    white: '#eceff4', light: '#d8dee9', mid: '#a3be8c', gray: '#81a1c1', darkGray: '#4c566a',
+  },
+  // ethanschoonover.com/solarized — designed for prolonged terminal reading
+  'solarized-dark': {
+    cyan: '#2aa198', cyanLight: '#268bd2', cyanDim: '#073642',
+    magenta: '#d33682', magentaDim: '#6c71c4',
+    yellow: '#b58900', yellowDim: '#cb4b16',
+    key: '#002b36',
+    white: '#fdf6e3', light: '#eee8d5', mid: '#93a1a1', gray: '#839496', darkGray: '#586e75',
+  },
+  // morhetz/gruvbox — warm earthy retro
+  'gruvbox': {
+    cyan: '#83a598', cyanLight: '#8ec07c', cyanDim: '#458588',
+    magenta: '#d3869b', magentaDim: '#b16286',
+    yellow: '#fabd2f', yellowDim: '#fe8019',
+    key: '#282828',
+    white: '#ebdbb2', light: '#d5c4a1', mid: '#bdae93', gray: '#a89984', darkGray: '#665c54',
+  },
+  // enkia.github.io/tokyo-night — high-saturation modern dark
+  'tokyo-night': {
+    cyan: '#7dcfff', cyanLight: '#7aa2f7', cyanDim: '#414868',
+    magenta: '#bb9af7', magentaDim: '#ff007c',
+    yellow: '#e0af68', yellowDim: '#ff9e64',
+    key: '#1a1b26',
+    white: '#c0caf5', light: '#a9b1d6', mid: '#9aa5ce', gray: '#565f89', darkGray: '#414868',
+  },
+  // catppuccin.com — pastel "mocha" variant
+  'catppuccin': {
+    cyan: '#94e2d5', cyanLight: '#89dceb', cyanDim: '#74c7ec',
+    magenta: '#f5c2e7', magentaDim: '#cba6f7',
+    yellow: '#f9e2af', yellowDim: '#fab387',
+    key: '#1e1e2e',
+    white: '#cdd6f4', light: '#bac2de', mid: '#a6adc8', gray: '#9399b2', darkGray: '#6c7086',
+  },
+  // Pure-saturation accessibility palette for users with low vision who
+  // still see some color. Maximum contrast against terminal black.
+  'high-contrast': {
+    cyan: '#00ffff', cyanLight: '#80ffff', cyanDim: '#008080',
+    magenta: '#ff00ff', magentaDim: '#800080',
+    yellow: '#ffff00', yellowDim: '#cccc00',
+    key: '#000000',
+    white: '#ffffff', light: '#ffffff', mid: '#cccccc', gray: '#aaaaaa', darkGray: '#888888',
+  },
 };
+
+export const PALETTE_META: Record<PaletteId, PaletteMeta> = {
+  'compact-cmyk':   { id: 'compact-cmyk',   name: 'Compact CMYK (default)', source: 'in-house',            description: 'Cyan/Magenta/Yellow on dark — the original.' },
+  'dracula':        { id: 'dracula',        name: 'Dracula',                source: 'draculatheme.com',     description: 'Purple/pink/cyan — the most popular dark theme.' },
+  'nord':           { id: 'nord',           name: 'Nord',                   source: 'nordtheme.com',        description: 'Cool arctic blues + soft greens.' },
+  'solarized-dark': { id: 'solarized-dark', name: 'Solarized Dark',         source: 'ethanschoonover.com',  description: 'Designed for prolonged terminal reading.' },
+  'gruvbox':        { id: 'gruvbox',        name: 'Gruvbox Dark',           source: 'github.com/morhetz',   description: 'Warm earthy retro tones.' },
+  'tokyo-night':    { id: 'tokyo-night',    name: 'Tokyo Night',            source: 'enkia.github.io',      description: 'High-saturation modern dark.' },
+  'catppuccin':     { id: 'catppuccin',     name: 'Catppuccin Mocha',       source: 'catppuccin.com',       description: 'Pastel pinks + blues.' },
+  'high-contrast':  { id: 'high-contrast',  name: 'High Contrast (a11y)',   source: 'WCAG-friendly',        description: 'Pure saturated colors. For low-vision users.' },
+};
+
+// Active palette — mutable. Starts on the default; index.ts calls
+// setPalette() with the user's choice during startup.
+let palette: ColorPalette = PALETTES['compact-cmyk'];
+let activePaletteId: PaletteId = 'compact-cmyk';
+
+export function getPaletteId(): PaletteId { return activePaletteId; }
+export function listPalettes(): PaletteMeta[] { return Object.values(PALETTE_META); }
+export function isPaletteId(s: string): s is PaletteId { return s in PALETTES; }
 
 // ── Symbols (matching Gemini/Claude patterns) ───────────
 export const sym = {
@@ -46,76 +158,106 @@ export const sym = {
 };
 
 // ── Theme (semantic color tokens) ───────────────────────
-export const theme = {
-  // ── Brand ──
-  brand:       chalk.hex(palette.cyan),
-  brandBold:   chalk.hex(palette.cyan).bold,
-  brandDim:    chalk.hex(palette.cyanDim),
+// `theme` is a mutable object — setPalette() reassigns every property in
+// place. UI callers (which look up theme.brand, theme.dim, etc. at call
+// time) automatically pick up the new palette without re-imports.
+type ChalkFn = (s: string) => string;
+type BadgeFn = (s: string) => string;
+interface Theme {
+  brand: ChalkFn; brandBold: ChalkFn; brandDim: ChalkFn;
+  success: ChalkFn; warning: ChalkFn; error: ChalkFn; info: ChalkFn;
+  primary: ChalkFn; secondary: ChalkFn; dim: ChalkFn; muted: ChalkFn; bright: ChalkFn; italic: ChalkFn;
+  header: ChalkFn; subheader: ChalkFn; command: ChalkFn; cost: ChalkFn; link: ChalkFn;
+  prompt: ChalkFn; assistant: ChalkFn; user: ChalkFn;
+  toolName: ChalkFn; toolArgs: ChalkFn; toolStatus: ChalkFn; toolError: ChalkFn; toolTime: ChalkFn;
+  thinkBorder: ChalkFn; thinkText: ChalkFn; thinkLabel: ChalkFn;
+  modeBadge: BadgeFn; secBadge: BadgeFn;
+}
 
-  // ── Semantic Status ──
-  success:     chalk.hex('#4DD0E1'),
-  warning:     chalk.hex(palette.yellow),
-  error:       chalk.hex(palette.magenta),
-  info:        chalk.hex(palette.cyanLight),
+/**
+ * Build a fresh Theme object for the currently active palette. Called by
+ * setPalette() at runtime and once at module load for the default.
+ */
+function buildTheme(p: ColorPalette): Theme {
+  return {
+    brand:       chalk.hex(p.cyan),
+    brandBold:   chalk.hex(p.cyan).bold,
+    brandDim:    chalk.hex(p.cyanDim),
 
-  // ── Text Hierarchy ──
-  primary:     chalk.hex(palette.white),
-  secondary:   chalk.hex(palette.mid),
-  dim:         chalk.hex(palette.gray),
-  muted:       chalk.hex(palette.darkGray),
-  bright:      chalk.white.bold,
-  italic:      chalk.hex(palette.mid).italic,
+    success:     chalk.hex(p.cyanLight),
+    warning:     chalk.hex(p.yellow),
+    error:       chalk.hex(p.magenta),
+    info:        chalk.hex(p.cyanLight),
 
-  // ── UI Elements ──
-  header:      chalk.hex(palette.cyan).bold,
-  subheader:   chalk.hex(palette.cyanLight),
-  command:     chalk.hex(palette.yellow),
-  cost:        chalk.hex(palette.gray),
-  link:        chalk.hex(palette.cyanLight).underline,
+    primary:     chalk.hex(p.white),
+    secondary:   chalk.hex(p.mid),
+    dim:         chalk.hex(p.gray),
+    muted:       chalk.hex(p.darkGray),
+    bright:      chalk.hex(p.white).bold,
+    italic:      chalk.hex(p.mid).italic,
 
-  // ── Prompt & Messages ──
-  prompt:      chalk.hex(palette.cyan).bold,
-  assistant:   chalk.hex(palette.cyanLight).bold,
-  user:        chalk.hex(palette.white),
+    header:      chalk.hex(p.cyan).bold,
+    subheader:   chalk.hex(p.cyanLight),
+    command:     chalk.hex(p.yellow),
+    cost:        chalk.hex(p.gray),
+    link:        chalk.hex(p.cyanLight).underline,
 
-  // ── Tool Calls ──
-  toolName:    chalk.hex(palette.cyan).bold,
-  toolArgs:    chalk.hex(palette.mid),
-  toolStatus:  chalk.hex('#4DD0E1'),
-  toolError:   chalk.hex(palette.magenta),
-  toolTime:    chalk.hex(palette.gray),
+    prompt:      chalk.hex(p.cyan).bold,
+    assistant:   chalk.hex(p.cyanLight).bold,
+    user:        chalk.hex(p.white),
 
-  // ── Thinking ──
-  thinkBorder: chalk.hex(palette.darkGray),
-  thinkText:   chalk.hex(palette.gray).italic,
-  thinkLabel:  chalk.hex(palette.darkGray).italic,
+    toolName:    chalk.hex(p.cyan).bold,
+    toolArgs:    chalk.hex(p.mid),
+    toolStatus:  chalk.hex(p.cyanLight),
+    toolError:   chalk.hex(p.magenta),
+    toolTime:    chalk.hex(p.gray),
 
-  // ── Mode Badges ──
-  modeBadge: (mode: string): string => {
-    const colors: Record<string, typeof chalk> = {
-      dev:       chalk.bgHex(palette.cyan).hex(palette.key),
-      review:    chalk.bgHex(palette.cyanDim).hex(palette.white),
-      tdd:       chalk.bgHex(palette.magenta).hex(palette.white),
-      research:  chalk.bgHex(palette.yellow).hex(palette.key),
-      plan:      chalk.bgHex(palette.yellowDim).hex(palette.key),
-      debug:     chalk.bgHex(palette.magentaDim).hex(palette.white),
-      architect: chalk.bgHex(palette.cyanLight).hex(palette.key),
-    };
-    return (colors[mode] || chalk.bgGray.white)(` ${mode.toUpperCase()} `);
-  },
+    thinkBorder: chalk.hex(p.darkGray),
+    thinkText:   chalk.hex(p.gray).italic,
+    thinkLabel:  chalk.hex(p.darkGray).italic,
 
-  // ── Security Badges ──
-  secBadge: (level: string): string => {
-    const colors: Record<string, typeof chalk> = {
-      critical: chalk.bgHex(palette.magenta).white.bold,
-      high:     chalk.hex(palette.magenta).bold,
-      medium:   chalk.hex(palette.yellow),
-      low:      chalk.hex(palette.gray),
-      safe:     chalk.hex(palette.cyan),
-    };
-    return (colors[level] || chalk.white)(level.toUpperCase());
-  },
-};
+    modeBadge: (mode: string): string => {
+      const colors: Record<string, ChalkFn> = {
+        dev:       chalk.bgHex(p.cyan).hex(p.key),
+        review:    chalk.bgHex(p.cyanDim).hex(p.white),
+        tdd:       chalk.bgHex(p.magenta).hex(p.white),
+        research:  chalk.bgHex(p.yellow).hex(p.key),
+        plan:      chalk.bgHex(p.yellowDim).hex(p.key),
+        debug:     chalk.bgHex(p.magentaDim).hex(p.white),
+        architect: chalk.bgHex(p.cyanLight).hex(p.key),
+        hermes:    chalk.bgHex(p.magenta).hex(p.white),
+        design:    chalk.bgHex(p.yellowDim).hex(p.key),
+      };
+      return (colors[mode] || chalk.bgGray.white)(` ${mode.toUpperCase()} `);
+    },
+
+    secBadge: (level: string): string => {
+      const colors: Record<string, ChalkFn> = {
+        critical: chalk.bgHex(p.magenta).hex(p.white).bold,
+        high:     chalk.hex(p.magenta).bold,
+        medium:   chalk.hex(p.yellow),
+        low:      chalk.hex(p.gray),
+        safe:     chalk.hex(p.cyan),
+      };
+      return (colors[level] || chalk.white)(level.toUpperCase());
+    },
+  };
+}
+
+export const theme: Theme = buildTheme(palette);
+
+/**
+ * Switch the active palette. Mutates the exported `theme` object in place
+ * so existing callers don't need to re-import. Returns true if the palette
+ * was found and applied; false if id was unknown.
+ */
+export function setPalette(id: string): boolean {
+  if (!isPaletteId(id)) return false;
+  palette = PALETTES[id];
+  activePaletteId = id;
+  Object.assign(theme, buildTheme(palette));
+  return true;
+}
 
 // ── Banner (single unified startup display) ────────────
 export function printBanner(

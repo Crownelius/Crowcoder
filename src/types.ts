@@ -23,7 +23,8 @@ export interface CrowcoderConfig {
   temperature: number;
   permissionMode: 'ask' | 'auto' | 'yolo';  // ask=prompt, auto=safe-only, yolo=all
   dryRun?: boolean;        // when true, show what tools WOULD execute without running them
-  theme?: 'full' | 'compact' | 'minimal';   // startup display mode
+  theme?: 'full' | 'compact' | 'minimal';   // startup display mode (layout density)
+  palette?: string;        // color palette id (compact-cmyk, dracula, nord, etc.) — see src/theme.ts
   showThinking?: boolean;  // when true, display model reasoning/thinking tokens
   voice?: VoiceConfig;     // accessibility: STT (Whisper) + TTS (ElevenLabs) + screen-reader mode
 }

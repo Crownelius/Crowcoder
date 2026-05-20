@@ -17,6 +17,9 @@ const DEFAULT_CONFIG: CrowcoderConfig = {
   maxTokens: 8192,
   temperature: 0.3,
   permissionMode: 'ask',
+  // Default color palette. Users switch with /palette <name>; available
+  // palettes are listed via /palettes. compact-cmyk is the original look.
+  palette: 'compact-cmyk',
   // Thinking / reasoning shown by default — gives users live "the model isn't
   // dead" feedback during long turns. Toggle off with /thinking.
   showThinking: true,
@@ -111,7 +114,7 @@ function validateConfig(config: CrowcoderConfig): void {
   }
 
   // Warn on unexpected fields
-  const expectedFields = new Set(['apiKey', 'baseURL', 'model', 'provider', 'maxTokens', 'temperature', 'permissionMode', 'dryRun', 'theme', 'showThinking', 'voice']);
+  const expectedFields = new Set(['apiKey', 'baseURL', 'model', 'provider', 'maxTokens', 'temperature', 'permissionMode', 'dryRun', 'theme', 'palette', 'showThinking', 'voice']);
   for (const key in config) {
     if (!expectedFields.has(key)) {
       console.warn(`Warning: Unexpected config field: ${key}`);

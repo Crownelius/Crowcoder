@@ -22,7 +22,7 @@ import { buildCommitPrompt, buildPRPrompt, printDiff, printLog, isGitRepo } from
 import { buildReviewPrompt, buildTDDPrompt, buildSecurityReviewPrompt, runAudit, printAuditReport, buildPlanPrompt, buildE2EPrompt, buildBuildFixPrompt, buildEvalPrompt, buildUpdateDocsPrompt } from './evaluation.js';
 import { printRules } from './rules.js';
 import { buildOrchestrationPrompt, runParallel, mergeResults, printOrchestrationStatus, type SubAgent } from './orchestration.js';
-import { printBanner as printThemedBanner, theme, sym, formatDuration, installScreenReaderDispatch, uninstallScreenReaderDispatch } from './theme.js';
+import { printBanner as printThemedBanner, theme, sym, formatDuration, installScreenReaderDispatch, uninstallScreenReaderDispatch, setPalette, getPaletteId, listPalettes, isPaletteId, PALETTES } from './theme.js';
 import { saveExport, type ExportFormat } from './export.js';
 // New feature modules
 import { buildVerifyPrompt, saveCheckpoint, listCheckpoints, restoreCheckpoint } from './verification.js';
@@ -207,6 +207,8 @@ export function handleSlashCommand(
       console.log(d('  ') + c('/help') + d('             — this help'));
       console.log(d('  ') + c('/config') + d('           — reconfigure provider/model/key'));
       console.log(d('  ') + c('/theme [mode]') + d('     — toggle display mode (full/compact/minimal)'));
+      console.log(d('  ') + c('/palette [id]') + d('     — switch color palette; run /palettes to list'));
+      console.log(d('  ') + c('/palettes') + d('         — list available color palettes with preview'));
       console.log(d('  ') + c('/clear') + d('            — clear conversation'));
       console.log(d('  ') + c('/history') + d('          — message count & token estimate'));
       console.log(d('  ') + c('/export [fmt]') + d('     — export conversation (md/json/txt)'));
@@ -1238,6 +1240,47 @@ export function handleSlashCommand(
     }
 
 
+    // ── Palette (color theme) ────────────────────────
+    // `/palette` (no arg)  → show current + how to list
+    // `/palette <id>`      → switch
+    // `/palettes`          → list all available palettes with a preview
+    case '/palette': {
+      const target = args.trim().toLowerCase();
+      if (!target) {
+        console.log(chalk.dim(`  Current palette: ${getPaletteId()}`));
+        console.log(chalk.dim(`  Run /palettes to see all options.`));
+        return { handled: true };
+      }
+      if (!isPaletteId(target)) {
+        console.log(chalk.yellow(`  Unknown palette: ${target}`));
+        console.log(chalk.dim(`  Run /palettes to see all options.`));
+        return { handled: true };
+      }
+      setPalette(target);
+      config.palette = target;
+      saveConfig(config);
+      console.log(theme.brandBold(`  ${sym.crow} Palette: ${target}`));
+      console.log(theme.dim('  Brand · ') + theme.brand('brand') + theme.dim(' · ') + theme.success('success') + theme.dim(' · ') + theme.warning('warning') + theme.dim(' · ') + theme.error('error') + theme.dim(' · ') + theme.command('command'));
+      return { handled: true };
+    }
+
+    case '/palettes': {
+      const cur = getPaletteId();
+      console.log(theme.header('\n  Available palettes:'));
+      for (const meta of listPalettes()) {
+        const marker = meta.id === cur ? theme.brandBold('  ◀ ') : '    ';
+        // Build a tiny inline color preview using the palette so the user
+        // can see what they'd be switching to. We don't actually call
+        // setPalette here — just construct chalk-bound previews manually.
+        const p = PALETTES[meta.id];
+        const dot = chalk.hex(p.cyan)('●') + chalk.hex(p.magenta)('●') + chalk.hex(p.yellow)('●') + chalk.hex(p.cyanLight)('●') + chalk.hex(p.gray)('●');
+        console.log(theme.dim(`${marker}`) + dot + theme.dim('  ') + theme.bright(meta.id.padEnd(18)) + theme.dim(meta.description));
+        console.log(theme.dim(`         source: ${meta.source}`));
+      }
+      console.log(theme.dim('\n  Switch with: /palette <id>\n'));
+      return { handled: true };
+    }
+
     // ── Voice / accessibility ────────────────────────
     // /voice                    — show current voice config + status
     // /voice on | off           — master switch
@@ -1482,11 +1525,21 @@ async function main(): Promise<void> {
     config = loadConfig();
   }
 
+  // Apply the user's chosen color palette before anything paints. setPalette
+  // mutates the exported `theme` object in place so the banner, prompt, and
+  // every subsequent log line render in the right colors.
+  if (config.palette) setPalette(config.palette);
+
   // Install the screen-reader output filter if the user's config has it on.
   // Done as early as possible so every subsequent console.log (banner, hooks,
   // ECC install report, etc.) gets the filter applied uniformly.
+  //
+  // We also print a one-line notice up front so a sighted user who left this
+  // on by accident notices immediately rather than spending five minutes
+  // wondering where the colors went.
   if (config.voice?.accessibility?.screenReader) {
     installScreenReaderDispatch(applyScreenReader);
+    console.log('[notice] screen-reader mode is ON — ANSI colors are stripped for NVDA/JAWS compatibility. Turn off with: /accessibility screen-reader off');
   }
 
   // Create session
