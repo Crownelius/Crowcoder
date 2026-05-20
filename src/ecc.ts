@@ -608,6 +608,19 @@ function seedHooks(): number {
   return eccHooks.length;
 }
 
+/**
+ * Re-seed ECC hooks against the CURRENT install path. Called on every
+ * startup (when ECC is already installed) to self-heal stale absolute
+ * paths from a prior install location. Idempotent.
+ *
+ * Safe to call repeatedly — strips and re-adds the __ecc__-tagged hooks
+ * each time. Returns the number of hooks now seeded (0 if ecc-hooks.cjs
+ * is missing on this machine, in which case we leave hooks.json alone).
+ */
+export function reseedEccHooks(): number {
+  return seedHooks();
+}
+
 // ── Top-level install ───────────────────────────────────
 export function installEcc(opts: { verbose?: boolean } = {}): ImportReport {
   if (!eccResourcesAvailable()) {

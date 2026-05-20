@@ -90,13 +90,45 @@ function matchesTool(pattern: string, toolName: string): boolean {
   return false;
 }
 
+// ── Broken-hook quarantine ───────────────────────────────
+// When a hook's command can't be found or crashes due to a system error
+// (ENOENT, ETIMEDOUT, MODULE_NOT_FOUND, etc.) we add it to this set and
+// skip it for the rest of the session. Otherwise a single bad hook will
+// crash every tool call. Logged ONCE on first quarantine so the user
+// knows to clean up ~/.crowcoder/hooks.json.
+const quarantinedHooks = new Set<string>();
+
+function hookSignature(h: HookDef): string {
+  return `${h.event}::${h.match}::${h.command}`;
+}
+
+// System-level error codes from execSync — these mean the hook's command
+// couldn't run at all (file missing, shell missing, timed out). They are
+// NOT "the hook intentionally returned non-zero to block the tool". When
+// we see one, the hook is broken and we should never block on it.
+const SYSTEM_ERROR_CODES = new Set([
+  'ENOENT', 'ETIMEDOUT', 'EACCES', 'EPERM', 'EAGAIN', 'EMFILE', 'ENOMEM',
+]);
+
+function isSystemError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (typeof e.code === 'string' && SYSTEM_ERROR_CODES.has(e.code)) return true;
+  // MODULE_NOT_FOUND comes through as a plain string in err.message; the
+  // err.code property is also 'MODULE_NOT_FOUND' but on the inner error.
+  // Detect it from the message as well.
+  if (typeof e.message === 'string' && /MODULE_NOT_FOUND|Cannot find module/.test(e.message)) return true;
+  return false;
+}
+
 export async function runHooks(ctx: HookContext): Promise<HookResult> {
   const config = loadHooksConfig();
   const matching = config.hooks.filter(
     (h) =>
       h.event === ctx.event &&
       (h.enabled !== false) &&
-      (!ctx.toolName || matchesTool(h.match, ctx.toolName)),
+      (!ctx.toolName || matchesTool(h.match, ctx.toolName)) &&
+      !quarantinedHooks.has(hookSignature(h)),
   );
 
   for (const hook of matching) {
@@ -120,19 +152,49 @@ export async function runHooks(ctx: HookContext): Promise<HookResult> {
     const timeout = hook.timeout ?? 10_000;
 
     try {
-      const result = execSync(hook.command, {
+      // Shell choice:
+      //   - Windows: omit the `shell` option so execSync uses cmd.exe
+      //     (the documented default on win32). Previously we passed
+      //     'bash', which routed through Git Bash / WSL bash and mangled
+      //     Windows absolute paths like C:\… into /mnt/c/…/C:\….
+      //   - Other platforms: keep /bin/bash because hook commands typically
+      //     rely on POSIX shell features.
+      const execOpts: Parameters<typeof execSync>[1] = {
         cwd: ctx.cwd,
         env,
         timeout,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32' ? 'bash' : '/bin/bash',
-      });
+      };
+      if (process.platform !== 'win32') {
+        execOpts.shell = '/bin/bash';
+      }
+      const result = execSync(hook.command, execOpts);
 
       const output = result.toString().trim();
       if (output) {
         console.log(chalk.dim(`  [hook:${ctx.event}] ${output}`));
       }
     } catch (err: unknown) {
+      // A SYSTEM-level error (file missing, timeout, MODULE_NOT_FOUND)
+      // means the hook is broken — quarantine it and DO NOT block the
+      // tool call. Stale hooks shouldn't be able to brick the agent.
+      if (isSystemError(err)) {
+        const sig = hookSignature(hook);
+        if (!quarantinedHooks.has(sig)) {
+          quarantinedHooks.add(sig);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(chalk.yellow(
+            `  [hook:${ctx.event}] broken hook quarantined for this session: ${hook.match}\n` +
+            `    command: ${hook.command.slice(0, 100)}\n` +
+            `    reason:  ${msg.split('\n')[0].slice(0, 200)}\n` +
+            `    fix:     edit ${HOOKS_CONFIG} or delete the bad entry; restart to re-enable.`,
+          ));
+        }
+        continue;  // do NOT block on a broken hook
+      }
+      // A non-system error (the hook ran but exited non-zero) is treated
+      // per the hook's blocking flag — that's the intentional "block this
+      // tool call" path.
       if (isBlocking) {
         const msg = err instanceof Error ? err.message : String(err);
         console.log(chalk.yellow(`  [hook:${ctx.event}] BLOCKED: ${msg}`));
@@ -144,6 +206,14 @@ export async function runHooks(ctx: HookContext): Promise<HookResult> {
   }
 
   return { allowed: true };
+}
+
+/**
+ * Reset the quarantine list — used by /reset-config when the user has
+ * fixed their hooks.json and wants to re-enable hooks without restarting.
+ */
+export function clearQuarantinedHooks(): void {
+  quarantinedHooks.clear();
 }
 
 export function saveHooksConfig(config: HooksConfig): void {

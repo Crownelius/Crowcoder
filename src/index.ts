@@ -11,7 +11,7 @@ import type { CrowcoderConfig, Message } from './types.js';
 import { PROVIDERS } from './types.js';
 // New systems
 import { createSession, autoSave, listSessions, loadSession, deleteSession, type Session } from './sessions.js';
-import { initHooksDir, runHooks, listHooks } from './hooks.js';
+import { initHooksDir, runHooks, listHooks, saveHooksConfig, clearQuarantinedHooks } from './hooks.js';
 import { printUsageSummary, setBudget } from './cost-tracker.js';
 import { printSecurityWarning, scanCommand } from './security.js';
 import { getCompactionStats } from './compaction.js';
@@ -79,7 +79,7 @@ import { printHookControlStatus, getHookProfile } from './hook-controls.js';
 import { buildPM2Prompt, isPM2Available, listPM2Services } from './pm2-manager.js';
 // ECC (everything-claude-code) integration
 import {
-  installEcc, getEccCommandPrompt, loadEccState, eccResourcesAvailable,
+  installEcc, getEccCommandPrompt, loadEccState, eccResourcesAvailable, reseedEccHooks,
 } from './ecc.js';
 // Walkthrough — agent-led tour of Crowcoder (/walkthrough, /tour, /guide)
 import { buildWalkthroughPrompt } from './walkthrough.js';
@@ -255,6 +255,7 @@ export function handleSlashCommand(
       console.log(d('  ') + c('/thinking') + d('         — toggle thinking/reasoning display'));
       console.log(d('  ') + c('/cd <path>') + d('        — change directory'));
       console.log(d('  ') + c('/hooks') + d('            — list configured hooks'));
+      console.log(d('  ') + c('/reset-hooks') + d('      — wipe hooks.json and re-seed ECC hooks for current install'));
       console.log(h('\n  ── Planning & Docs ──'));
       console.log(d('  ') + c('/plan <task>') + d('      — structured implementation planning'));
       console.log(d('  ') + c('/update-docs') + d('      — sync documentation with code'));
@@ -1240,6 +1241,25 @@ export function handleSlashCommand(
     }
 
 
+    // ── Reset hooks (clear stale entries from old installs) ──
+    // Wipes ~/.crowcoder/hooks.json, clears the in-memory quarantine, and
+    // re-seeds the ECC default hooks against this install's bin path. Use
+    // this when stale dev-machine paths from a prior install are crashing
+    // every tool call.
+    case '/hooks-reset':
+    case '/reset-hooks': {
+      saveHooksConfig({ hooks: [] });
+      clearQuarantinedHooks();
+      console.log(chalk.green('  Hooks cleared. Re-seeding ECC hooks for current install...'));
+      try {
+        const n = reseedEccHooks();
+        console.log(chalk.green(`  Re-seeded ${n} ECC hooks pointing at this install.`));
+      } catch (e) {
+        console.log(chalk.dim(`  (ECC re-seed skipped: ${e instanceof Error ? e.message : e})`));
+      }
+      return { handled: true };
+    }
+
     // ── Palette (color theme) ────────────────────────
     // `/palette` (no arg)  → show current + how to list
     // `/palette <id>`      → switch
@@ -1515,6 +1535,18 @@ async function main(): Promise<void> {
       // Never block startup on ECC failures
       console.log(chalk.dim(`  ECC install skipped: ${err instanceof Error ? err.message : err}`));
     }
+  } else if (eccResourcesAvailable() && loadEccState()) {
+    // Self-heal stale ECC hook paths on every startup. seedHooks() writes
+    // absolute paths derived from __dirname; after a global npm install
+    // (or moving the dev tree, or any path change), those paths become
+    // invalid and every tool call BLOCKS with a "module not found" error.
+    // Re-seeding is idempotent: it strips prior __ecc__-tagged hooks and
+    // re-adds them pointing at the CURRENT install path. User-defined
+    // hooks (which don't carry the __ecc__ tag) are untouched.
+    try {
+      const { reseedEccHooks } = await import('./ecc.js');
+      reseedEccHooks();
+    } catch { /* never block startup on this */ }
   }
 
   // Load or create config
