@@ -91,7 +91,7 @@ import {
   speakAssistantResponse, speak, dictateOnce, DEFAULT_ASSISTANT_VOICE, DEFAULT_USER_VOICE,
 } from './voice.js';
 import { isFfmpegAvailable, audioCue, startRecording, type RecordController } from './audio.js';
-import { applyScreenReader } from './accessibility.js';
+import { applyScreenReader, summarize } from './accessibility.js';
 
 /**
  * Unified prompt resolver — prefers the bundled ECC prompt for a given
@@ -320,7 +320,8 @@ export function handleSlashCommand(
       console.log(d('  ') + c('/voice echo|skip-code|speed') + d(' — fine-tune behavior'));
       console.log(d('  ') + c('/dictate [s]') + d('      — one-shot record + transcribe (default 30s)'));
       console.log(d('  ') + c('/accessibility') + d('    — toggle screen-reader mode, audio cues, destructive-confirm'));
-      console.log(d('  Hotkeys: F1 dictate · F2 pause · F3 replay · F4 skip · F5 speed+ · F6 speed–'));
+      console.log(d('  Playback hotkeys (right block): INS dictate · HOME pause · PGUP replay · DEL skip · END speed+ · PGDN speed–'));
+      console.log(d('  Status hotkeys (F-row): F1 what now · F2 where am I · F3 read full · F4 read summary'));
       console.log(h('\n  ── Stitch (Google AI UI/UX design) ──'));
       console.log(d('  Use ') + c('/mode design') + d(' or ') + c('/design <task>') + d(' for UI work — the agent uses Stitch automatically.'));
       console.log(d('  ') + c('/stitch') + d('              — show config status'));
@@ -1532,51 +1533,66 @@ async function main(): Promise<void> {
   let autoRoute = false;
 
   // ── F-key hotkey listener ────────────────────────────────
-  // Voice / accessibility hotkeys. All keys are no-ops when voice is off, so
-  // installing the listener unconditionally is safe and lets the user enable
-  // voice mid-session without restarting.
+  // Voice / accessibility hotkeys.
   //
-  //   F1 = push-to-talk dictation (toggle: first press starts, second stops)
-  //   F2 = pause / resume current TTS playback
-  //   F3 = replay last TTS chunk
-  //   F4 = skip current TTS chunk
-  //   F5 = speed up TTS (×1.25)
-  //   F6 = slow down TTS (×0.8)
+  // The six right-side block keys handle PLAYBACK + DICTATION. They're
+  // mapped here (and not to F-keys) because the right-side block is
+  // tactile-locatable without sight — INS/HOME/PGUP form a tight triangle
+  // above the arrow keys with raised nibs on many keyboards, and DEL/END/
+  // PGDN sit directly below them. F-keys are repurposed for STATUS read-
+  // outs because they're row-aligned (countable by touch).
   //
-  // We listen on the raw keypress stream. readline.emitKeypressEvents wires
-  // every keystroke into 'keypress' events; we filter to F-keys only and
-  // pass everything else through to readline's normal line-buffered reader.
+  //   Playback / dictation block (right side):
+  //     INS    push-to-talk dictation (toggle: first press starts, second stops)
+  //     HOME   pause current TTS playback
+  //     PGUP   replay last spoken chunk
+  //     DEL    skip the current chunk
+  //     END    speed up TTS  (× 1.25, capped at 2.0)
+  //     PGDN   slow down TTS (× 0.8,  floored at 0.5)
+  //
+  //   Status announcements (F-row, for "what's happening?" while waiting):
+  //     F1     current activity + elapsed   ("calling claude-sonnet-4, 8s")
+  //     F2     where am I — model/provider/mode/permissions
+  //     F3     re-speak full last response (bypasses summary)
+  //     F4     re-speak summary of last response
+  //
+  // All keys are no-ops when voice is off, so installing the listener
+  // unconditionally is safe and lets the user enable voice mid-session
+  // without restarting.
   let dictateController: RecordController | null = null;
   let dictateActive = false;
-  let activePlaybackCtl: AbortController | null = null;
-  let lastSpokenChunk: string | null = null;
 
-  // Track aborts so query.ts can register a fresh playback session
+  // Track aborts + last-spoken text so query.ts can hand them off here.
   (globalThis as { __voicePlaybackCtl?: AbortController | null }).__voicePlaybackCtl = null;
   (globalThis as { __voiceLastChunk?: string | null }).__voiceLastChunk = null;
+  (globalThis as { __voiceLastFullResponse?: string | null }).__voiceLastFullResponse = null;
 
-  // emitKeypressEvents sets up the keypress event source; we don't put stdin
-  // in raw mode (readline does that as needed). Some platforms / terminals
-  // don't deliver F-keys at all — failure here is a silent no-op.
+  // emitKeypressEvents lives on the callback-flavor 'node:readline' module
+  // (the promises variant doesn't expose it). Some platforms / terminals
+  // don't deliver the right escape sequences for INS/HOME/etc — failure
+  // here is a silent no-op; users can fall back to /dictate.
   try {
-    // emitKeypressEvents lives on the callback-flavor 'node:readline' module
-    // (the promises variant doesn't expose it). Dynamically import it so we
-    // don't add another top-level import.
     const readlineCb = await import('node:readline');
+    const { describeStatus, describeLocation } = await import('./status.js');
     readlineCb.emitKeypressEvents(stdin);
+
+    // Set of keys we intercept. Anything not in this set falls through to
+    // readline so normal typing isn't affected.
+    const INTERCEPT = new Set([
+      'insert', 'home', 'pageup', 'delete', 'end', 'pagedown',  // playback
+      'f1', 'f2', 'f3', 'f4',                                    // status
+    ]);
+
     stdin.on('keypress', (_str, key) => {
       if (!key) return;
       const name = String(key.name || '').toLowerCase();
-      // Only intercept F1-F6; everything else falls through to readline
-      if (!['f1', 'f2', 'f3', 'f4', 'f5', 'f6'].includes(name)) return;
-      if (!isVoiceEnabled(config)) {
-        // Voice off — only show a one-time hint
-        return;
-      }
+      if (!INTERCEPT.has(name)) return;
+      if (!isVoiceEnabled(config)) return;
       const a = getAccessibilityConfig(config);
+      const tts = getTtsConfig(config);
 
-      if (name === 'f1') {
-        // Push-to-talk toggle
+      // ── INS: push-to-talk dictation toggle ──────────────
+      if (name === 'insert') {
         if (dictateActive) {
           dictateActive = false;
           const ctl = dictateController;
@@ -1586,93 +1602,143 @@ async function main(): Promise<void> {
             if (a.audioCues) await audioCue('recording-stop');
             const buf = await ctl.stop();
             if (!buf) {
-              console.log(chalk.dim('  [F1] no audio captured.'));
+              console.log(chalk.dim('  [INS] no audio captured.'));
               return;
             }
             if (a.audioCues) await audioCue('processing');
             const { transcribeAudio } = await import('./voice.js');
+            const { setStatus } = await import('./status.js');
+            setStatus({ state: 'transcribing' });
             const transcript = await transcribeAudio(buf, config, 'wav');
+            setStatus({ state: 'idle' });
             if (!transcript) {
-              console.log(chalk.dim('  [F1] transcription failed.'));
+              console.log(chalk.dim('  [INS] transcription failed.'));
               if (a.audioCues) await audioCue('error');
               return;
             }
             if (a.audioCues) await audioCue('done');
-            // Hand the transcript to readline's input buffer. Most reliable
-            // way is to print the transcript and let the user press Enter,
-            // or — when autoSubmit is on — synthesize a newline so the
-            // current rl.question() resolves with the text.
             const stt = getSttConfig(config);
-            // We can't directly fill rl's buffer from outside; instead, we
-            // write the transcript and a newline to stdin, which readline
-            // picks up the same as if the user had typed it.
             stdin.write(transcript);
             if (stt.autoSubmit) stdin.write('\n');
           })();
         } else {
-          // Start recording
           (async () => {
-            const ok = await isFfmpegAvailable();
-            if (!ok) {
-              console.log(chalk.yellow('  [F1] ffmpeg not on PATH. Install ffmpeg to dictate.'));
+            if (!(await isFfmpegAvailable())) {
+              console.log(chalk.yellow('  [INS] ffmpeg not on PATH. Install ffmpeg to dictate.'));
               return;
             }
             const ctl = await startRecording(60);
             if (!ctl) {
-              console.log(chalk.yellow('  [F1] could not start mic capture.'));
+              console.log(chalk.yellow('  [INS] could not start mic capture.'));
               return;
             }
             dictateController = ctl;
             dictateActive = true;
+            const { setStatus } = await import('./status.js');
+            setStatus({ state: 'recording' });
             if (a.audioCues) await audioCue('recording-start');
-            console.log(chalk.dim('  [F1] recording — press F1 again to stop.'));
+            console.log(chalk.dim('  [INS] recording — press INS again to stop.'));
           })();
         }
         return;
       }
 
-      if (name === 'f2') {
-        // Pause / resume — implement as cancel current chunk; replay restarts.
+      // ── HOME: pause TTS ─────────────────────────────────
+      if (name === 'home') {
         const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
         if (g.__voicePlaybackCtl && !g.__voicePlaybackCtl.signal.aborted) {
           g.__voicePlaybackCtl.abort();
-          console.log(chalk.dim('  [F2] TTS paused.'));
+          console.log(chalk.dim('  [HOME] TTS paused.'));
         }
         return;
       }
 
-      if (name === 'f3') {
-        // Replay last chunk
+      // ── PGUP: replay last chunk ─────────────────────────
+      if (name === 'pageup') {
         const g = globalThis as { __voiceLastChunk?: string | null };
         const chunk = g.__voiceLastChunk;
         if (!chunk) {
-          console.log(chalk.dim('  [F3] nothing to replay.'));
+          console.log(chalk.dim('  [PGUP] nothing to replay.'));
           return;
         }
-        const tts = getTtsConfig(config);
+        if (!tts.apiKey) return;
+        (async () => { await speak(chunk, config, { voiceId: tts.assistantVoiceId }); })();
+        return;
+      }
+
+      // ── DEL: skip current chunk ─────────────────────────
+      if (name === 'delete') {
+        const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
+        if (g.__voicePlaybackCtl) g.__voicePlaybackCtl.abort();
+        console.log(chalk.dim('  [DEL] TTS skipped.'));
+        return;
+      }
+
+      // ── END / PGDN: TTS speed ±  ───────────────────────
+      if (name === 'end' || name === 'pagedown') {
+        config.voice = config.voice || {};
+        const ttsCfg = config.voice.tts = { ...(config.voice.tts || {}) };
+        const cur = ttsCfg.speed ?? 1.0;
+        const next = name === 'end' ? Math.min(2.0, cur * 1.25) : Math.max(0.5, cur * 0.8);
+        ttsCfg.speed = Math.round(next * 100) / 100;
+        saveConfig(config);
+        console.log(chalk.dim(`  [${name === 'end' ? 'END' : 'PGDN'}] TTS speed: ${ttsCfg.speed}x`));
+        return;
+      }
+
+      // ── F1: "what's happening?" — current activity + elapsed ───
+      if (name === 'f1') {
+        const msg = describeStatus();
+        console.log(chalk.dim(`  [F1] ${msg}`));
+        if (tts.apiKey) {
+          speak(msg, config, { voiceId: tts.assistantVoiceId }).catch(() => { /* noop */ });
+        }
+        return;
+      }
+
+      // ── F2: "where am I?" — model/provider/mode/permissions ────
+      if (name === 'f2') {
+        const msg = describeLocation();
+        console.log(chalk.dim(`  [F2] ${msg}`));
+        if (tts.apiKey) {
+          speak(msg, config, { voiceId: tts.assistantVoiceId }).catch(() => { /* noop */ });
+        }
+        return;
+      }
+
+      // ── F3: re-speak FULL last response ────────────────
+      if (name === 'f3') {
+        const g = globalThis as { __voiceLastFullResponse?: string | null };
+        const text = g.__voiceLastFullResponse;
+        if (!text) {
+          console.log(chalk.dim('  [F3] nothing to read.'));
+          return;
+        }
         if (!tts.apiKey) return;
         (async () => {
-          await speak(chunk, config, { voiceId: tts.assistantVoiceId });
+          const { speakAssistantResponse } = await import('./voice.js');
+          const ctl = new AbortController();
+          (globalThis as { __voicePlaybackCtl?: AbortController | null }).__voicePlaybackCtl = ctl;
+          await speakAssistantResponse(text, config, ctl.signal);
         })();
         return;
       }
 
+      // ── F4: re-speak SUMMARY of last response ──────────
       if (name === 'f4') {
-        // Skip = same as pause for now (chunked playback boundaries)
-        const g = globalThis as { __voicePlaybackCtl?: AbortController | null };
-        if (g.__voicePlaybackCtl) g.__voicePlaybackCtl.abort();
-        console.log(chalk.dim('  [F4] TTS skipped.'));
-        return;
-      }
-
-      if (name === 'f5' || name === 'f6') {
-        config.voice = config.voice || {};
-        const tts = config.voice.tts = { ...(config.voice.tts || {}) };
-        const cur = tts.speed ?? 1.0;
-        const next = name === 'f5' ? Math.min(2.0, cur * 1.25) : Math.max(0.5, cur * 0.8);
-        tts.speed = Math.round(next * 100) / 100;
-        saveConfig(config);
-        console.log(chalk.dim(`  [${name.toUpperCase()}] TTS speed: ${tts.speed}x`));
+        const g = globalThis as { __voiceLastFullResponse?: string | null };
+        const text = g.__voiceLastFullResponse;
+        if (!text) {
+          console.log(chalk.dim('  [F4] nothing to summarize.'));
+          return;
+        }
+        if (!tts.apiKey) return;
+        const summary = summarize(text, a.longResponseThreshold);
+        (async () => {
+          const ctl = new AbortController();
+          (globalThis as { __voicePlaybackCtl?: AbortController | null }).__voicePlaybackCtl = ctl;
+          await speak(summary, config, { voiceId: tts.assistantVoiceId, signal: ctl.signal });
+        })();
         return;
       }
     });

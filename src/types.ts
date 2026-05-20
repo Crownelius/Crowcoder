@@ -44,7 +44,7 @@ export interface VoiceSttConfig {
   apiKey?: string;        // OpenAI key for Whisper. Falls back to top-level apiKey if absent.
   baseURL?: string;       // default https://api.openai.com/v1
   model?: string;         // default 'whisper-1'
-  dictationKey?: string;  // 'F1' (default) — hotkey to push-to-talk
+  dictationKey?: string;  // 'INS' (default) — push-to-talk toggle; right-side block keys are tactile-locatable
   autoSubmit?: boolean;   // if true, hitting stop-dictation submits the message
 }
 

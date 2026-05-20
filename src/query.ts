@@ -18,6 +18,7 @@ import {
 } from './voice.js';
 import { isLikelyDestructive, describeDestructive, countWords, summarize } from './accessibility.js';
 import { audioCue } from './audio.js';
+import { setStatus } from './status.js';
 
 export interface QueryContext {
   config: CrowcoderConfig;
@@ -133,11 +134,22 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
   // Auto-compact if context is getting large
   if (shouldCompact(ctx.messages, DEFAULT_COMPACTION)) {
     console.log(theme.dim(`  ${sym.running} auto-compacting conversation context...`));
+    setStatus({ state: 'compacting' });
     ctx.messages = await compactMessages(ctx.messages, ctx.config);
   } else {
     // Quick compact: truncate oversized tool results
     ctx.messages = quickCompact(ctx.messages);
   }
+
+  // Tell the status singleton who we are. This is what F2 ("where am I?")
+  // speaks back to the user. Updated once per chain — model/provider/mode
+  // can't change mid-chain.
+  setStatus({
+    model: ctx.config.model,
+    provider: ctx.config.provider,
+    mode: ctx.mode,
+    permissionMode: ctx.config.permissionMode,
+  });
 
   while (turns < maxTurns) {
     turns++;
@@ -194,6 +206,11 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
     // don't interleave with the model's output. Restored in `finally`.
     const inputGuard = suppressInputDuringStream();
 
+    // We're about to wait on the API; tell the status singleton so a blind
+    // user pressing F1 hears "calling claude-sonnet-4, 6 seconds elapsed"
+    // instead of a stale "idle".
+    setStatus({ state: 'streaming' });
+
     try {
       for await (const event of streamChat(ctx.config, apiMessages, ALL_TOOLS)) {
         if (event.type === 'thinking' && event.content) {
@@ -212,6 +229,9 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
           }
           if (!hasOutput) {
             hasOutput = true;
+            // First token arrived; promote status so F1 reports "receiving"
+            // rather than the still-waiting "streaming" message.
+            setStatus({ state: 'responding' });
           }
           writeStreamText(event.content);
         } else if (event.type === 'tool_call') {
@@ -279,10 +299,13 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
     // If no tool calls, we're done
     if (!toolCalls || toolCalls.length === 0) break;
 
-    // Execute tool calls
+    // Execute tool calls — executeToolCalls itself flips per-tool state
     const toolResults = await executeToolCalls(toolCalls, ctx);
     ctx.messages.push(...toolResults);
   }
+
+  // Chain ended; back to idle so F1 reports the correct state.
+  setStatus({ state: 'idle' });
 
   // ── Voice: read the assistant's final response ────────────
   // Off the hot path — fire-and-forget so the next prompt appears
@@ -299,11 +322,19 @@ export async function runQuery(ctx: QueryContext): Promise<void> {
       if (words >= a.longResponseThreshold) {
         toRead = summarize(toRead, a.longResponseThreshold);
       }
-      // Register an abort controller globally so F2/F4 hotkeys can cancel
-      const g = globalThis as { __voicePlaybackCtl?: AbortController | null; __voiceLastChunk?: string | null };
+      // Register an abort controller + last-chunk + last-full-response
+      // globally so the hotkey handler in index.ts can cancel / replay.
+      // - __voiceLastChunk drives PGUP "replay last chunk"
+      // - __voiceLastFullResponse drives F3 "read full" + F4 "read summary"
+      const g = globalThis as {
+        __voicePlaybackCtl?: AbortController | null;
+        __voiceLastChunk?: string | null;
+        __voiceLastFullResponse?: string | null;
+      };
       const ctl = new AbortController();
       g.__voicePlaybackCtl = ctl;
       g.__voiceLastChunk = toRead;
+      g.__voiceLastFullResponse = accumulatedAssistantText;
       speakAssistantResponse(toRead, ctx.config, ctl.signal).catch(() => { /* noop */ });
     }
   }
@@ -436,6 +467,10 @@ async function executeToolCalls(
 
     // ── Execute ───────────────────────────────────────────
     printToolRun(toolName, formatArgs(tool, input));
+    // Update status for F1 status hotkey — include a short arg snippet so
+    // the speaker can hear "executing bash, list directory, 4 seconds
+    // elapsed" instead of just "tool".
+    setStatus({ state: 'tool-call', detail: `${toolName}: ${formatArgs(tool, input).slice(0, 60)}` });
 
     let result;
     if (ctx.config.dryRun) {
