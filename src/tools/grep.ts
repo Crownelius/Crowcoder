@@ -1,5 +1,5 @@
 import { exec } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const GrepTool: Tool = {
@@ -37,7 +37,7 @@ export const GrepTool: Tool = {
 
   async call(input, cwd): Promise<ToolResult> {
     const pattern = input.pattern as string;
-    const searchPath = input.path ? resolve(cwd, input.path as string) : cwd;
+    const searchPath = input.path ? resolveUserPath(cwd, input.path as string) : cwd;
     const include = input.include as string | undefined;
     const ignoreCase = (input.ignore_case as boolean) || false;
     const maxResults = (input.max_results as number) || 100;

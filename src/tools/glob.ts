@@ -1,5 +1,5 @@
 import { glob } from 'glob';
-import { resolve } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const GlobTool: Tool = {
@@ -30,7 +30,7 @@ export const GlobTool: Tool = {
   async call(input, cwd): Promise<ToolResult> {
     try {
       const pattern = input.pattern as string;
-      const base = input.path ? resolve(cwd, input.path as string) : cwd;
+      const base = input.path ? resolveUserPath(cwd, input.path as string) : cwd;
       const maxResults = (input.max_results as number) || 200;
 
       const files = await glob(pattern, {

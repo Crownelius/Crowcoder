@@ -1,11 +1,16 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const WriteTool: Tool = {
   name: 'write_file',
   description:
-    'Create or overwrite a file with the given content. Parent directories are created automatically.',
+    'PREFERRED for creating or overwriting files. Provide the full content; ' +
+    'parent directories are created automatically; ~ in paths expands to the ' +
+    'user home directory; paths work natively on Windows/macOS/Linux. ' +
+    'Use this instead of `bash` + `echo > file` — no shell escaping, no path ' +
+    'translation, no quoting issues with multi-line content.',
   parameters: {
     type: 'object',
     properties: {
@@ -25,7 +30,7 @@ export const WriteTool: Tool = {
 
   async call(input, cwd): Promise<ToolResult> {
     try {
-      const filePath = resolve(cwd, input.file_path as string);
+      const filePath = resolveUserPath(cwd, input.file_path as string);
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, input.content as string, 'utf-8');
       const lines = (input.content as string).split('\n').length;

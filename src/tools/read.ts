@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const ReadTool: Tool = {
@@ -29,7 +29,7 @@ export const ReadTool: Tool = {
 
   async call(input, cwd): Promise<ToolResult> {
     try {
-      const filePath = resolve(cwd, input.file_path as string);
+      const filePath = resolveUserPath(cwd, input.file_path as string);
       const stat = statSync(filePath);
 
       if (stat.isDirectory()) {

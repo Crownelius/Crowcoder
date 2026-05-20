@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const ListDirTool: Tool = {
@@ -20,7 +21,7 @@ export const ListDirTool: Tool = {
 
   async call(input, cwd): Promise<ToolResult> {
     try {
-      const dirPath = input.path ? resolve(cwd, input.path as string) : cwd;
+      const dirPath = input.path ? resolveUserPath(cwd, input.path as string) : cwd;
       const entries = readdirSync(dirPath, { withFileTypes: true });
 
       const lines = entries.slice(0, 500).map((entry) => {

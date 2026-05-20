@@ -36,7 +36,12 @@ export function buildSystemPrompt(
   userQuery?: string,
 ): string {
   const os = `${platform()} ${release()}`;
-  const shell = process.platform === 'win32' ? 'bash (Git Bash / WSL)' : '/bin/bash';
+  // The shell label here MUST match what the bash tool actually runs.
+  // The bash tool picks cmd.exe on Windows by default (was a major source
+  // of "$USERPROFILE is empty" bugs when we used bash). Keep this in sync
+  // with src/tools/bash.ts:pickShell().
+  const shell = process.env.COMPACT_AGENT_SHELL
+    || (process.platform === 'win32' ? 'cmd.exe' : '/bin/bash');
 
   // Detect if cwd is a git repo
   let isGit = false;
@@ -108,6 +113,14 @@ IMPORTANT — tool-call rules:
 - For reading a known URL: use \`web_fetch\`.
 - For shell-only operations: use \`bash\`. Do not use bash for tasks any other tool already covers.
 - If a capability you want isn't in the list, work around it with the tools that exist. Don't pretend a tool exists.
+
+# File operations — picking the right tool
+- **Creating or overwriting a file**: always use \`write_file\`. Never use \`bash\` + \`echo > file\` for this. write_file takes the full content directly, handles multi-line strings without escaping, and resolves \`~/...\` paths to the user's actual home directory. \`bash\` + redirection is fragile across platforms — on Windows it routes through ${shell}, where \`$USERPROFILE\` / \`$HOME\` / bash-style paths may not behave the way you expect.
+- **Modifying a specific section** of an existing file: use \`edit_file\` with an exact \`old_string\` → \`new_string\` substitution.
+- **Reading**: use \`read_file\`.
+- **Finding files by name pattern**: use \`glob\`. **Finding files by content**: use \`grep\`. **Listing a directory**: use \`list_dir\`.
+- Tildes work in path arguments to file tools: \`~/Downloads/poem.txt\` resolves to the user's home directory on every platform. Don't try to expand it yourself via bash.
+- The active shell is **${shell}**. Generate commands in that shell's syntax when you do use \`bash\` — don't mix POSIX bash idioms (\`$VAR\`, \`/c/...\`) into a cmd.exe command or vice versa.
 
 # Guidelines
 - Read files before editing them. Understand existing code before suggesting changes.

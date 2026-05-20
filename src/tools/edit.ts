@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolveUserPath } from './path-utils.js';
 import type { Tool, ToolResult } from './types.js';
 
 export const EditTool: Tool = {
@@ -33,7 +33,7 @@ export const EditTool: Tool = {
 
   async call(input, cwd): Promise<ToolResult> {
     try {
-      const filePath = resolve(cwd, input.file_path as string);
+      const filePath = resolveUserPath(cwd, input.file_path as string);
       const oldStr = input.old_string as string;
       const newStr = input.new_string as string;
       const replaceAll = (input.replace_all as boolean) || false;
